@@ -1,0 +1,156 @@
+# Architecture decision records
+
+Every decision that shapes Tagwright is recorded here. Process and rules: [ADR 0001](0001-record-architecture-decisions.md). Agents must follow [AGENTS.md](../../AGENTS.md).
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
+| [0002](0002-purpose-scope-and-use-cases.md) | Purpose, scope and use cases (UC-1 to UC-15) | Accepted |
+| [0003](0003-deployment-web-app-in-docker.md) | Deployment: a web app in Docker on a Linux server | Accepted |
+| [0005](0005-technology-stack-and-conventions.md) | Technology stack and code conventions | Accepted (frontend parts superseded by 0029, Style bullet by 0034, one-file backend by 0036) |
+| [0007](0007-trust-boundary-and-secrets.md) | Trust boundary, no authentication, secrets | Accepted |
+| [0008](0008-job-model.md) | Job model: one job at a time, queue, polling, write lock | Accepted |
+| [0009](0009-settings-and-api-keys.md) | Settings and API keys | Accepted |
+| [0010](0010-bliss-file-naming.md) | Bliss file naming after fixes and edits | Accepted (output folder layout: 0037) |
+| [0011](0011-ingestion-move.md) | Moving fixed albums to the ingest folder | Accepted (flat target superseded by 0037) |
+| [0014](0014-internal-tag-editor.md) | Internal tag editor; what is editable and what is Discogs-owned | Accepted |
+| [0015](0015-track-playback-and-track-edit.md) | Track playback and per-track edit | Accepted |
+| [0016](0016-cover-art.md) | Cover art: display, size warning, replacement | Accepted |
+| [0018](0018-verification.md) | Verification without touching real data | Accepted |
+| [0020](0020-work-directly-on-main.md) | Work directly on main; no feature branches | Accepted |
+| [0021](0021-lrclib-lyrics-search.md) | Lyrics search on lrclib.net in the track editor | Accepted |
+| [0023](0023-musicbrainz-release-search.md) | MusicBrainz release search and tags | Accepted |
+| [0024](0024-delete-cover-removes-folder-image.md) | Delete cover also removes the folder image | Accepted |
+| [0025](0025-fingerprint-length-in-discogs-repository.md) | Fingerprints read the first 120 seconds (discogs repository change) | Accepted |
+| [0026](0026-ready-filter-returns.md) | The Ready filter returns to the top bar | Accepted |
+| [0027](0027-legacy-dynamic-range-tags-removed.md) | Legacy spaced dynamic-range tags removed from the discogs scripts | Accepted |
+| [0028](0028-replaygain-skip-needs-album-gain.md) | rsgain skips an album only when it already has album gain | Accepted |
+| [0029](0029-nextjs-frontend-static-export.md) | Frontend in Next.js with shadcn/ui, built to a committed static export | Accepted |
+| [0030](0030-ui-layout-and-design-system-v2.md) | UI layout and design system v2 (shadcn/ui; its sidebar replaced by 0031) | Accepted |
+| [0031](0031-top-bar-again.md) | Top bar again, no sidebar, no Artists list | Accepted (board padding superseded by 0087) |
+| [0032](0032-parallel-tag-writes-reopen-before-save.md) | Parallel pipeline scripts reopen a file before saving (discogs repository change) | Accepted |
+| [0033](0033-pipeline-tag-steps-run-in-sequence.md) | Dynamic range, ReplayGain and fingerprints run in sequence (discogs repository change) | Accepted |
+| [0034](0034-python-formatting-and-linting-with-ruff.md) | Python formatting and linting with ruff | Accepted |
+| [0035](0035-automated-tests-with-pytest.md) | Automated tests with pytest on synthetic albums | Accepted |
+| [0036](0036-standalone-pipeline-package.md) | A standalone pipeline package; the discogs repository is no longer needed | Accepted |
+| [0037](0037-library-watcher-and-layout.md) | The library folder: layout template, watcher, status | Accepted |
+| [0038](0038-staging-and-library-views.md) | Staging and Library views; one name for each folder | Accepted |
+| [0040](0040-channel-badges.md) | Channel badges (Mono, Stereo, 5.1, 7.1) on tracks | Accepted |
+| [0041](0041-wider-inspector.md) | A wider inspector on wide screens | Accepted |
+| [0042](0042-covers-are-scaled-on-upload.md) | A dropped or fetched cover is scaled to the limit at once | Accepted |
+| [0044](0044-lrclib-application-id-no-key-setting.md) | lrclib.net is reached with the application ID; no key setting | Accepted |
+| [0045](0045-folders-from-the-environment-only.md) | Staging and library folders come from the environment only; Settings shows their host paths | Accepted |
+| [0051](0051-run-a-single-pipeline-step.md) | A double click on a pipeline step runs only that step | Accepted |
+| [0053](0053-discogs-search-and-assignment-consolidated.md) | Discogs release search and track assignment (consolidated: 0013, 0043, 0046, 0047, 0048, 0052) | Accepted |
+| [0054](0054-album-status-and-steps-consolidated.md) | Album status, pipeline steps and issue lines (consolidated: 0006, 0039, 0049, 0050) | Accepted |
+| [0055](0055-no-default-paths.md) | No default paths: staging, library and data folders must be set | Accepted |
+| [0056](0056-cover-controls-in-one-menu.md) | Cover controls in one menu, with the size warning on the cover | Accepted |
+| [0057](0057-tag-editor-tabs-and-other-tags.md) | Tag editor tabs: Discogs and MusicBrainz apart, and an Other tab with the remaining tags | Accepted |
+| [0058](0058-audio-files-through-one-seam.md) | Audio files are opened through one seam (`pipeline/audio.py`) | Accepted |
+| [0059](0059-mp3-support.md) | MP3 support: ID3 mapped to the Vorbis-style tag model, v2.4 written, mixed albums, own extensions | Accepted |
+| [0060](0060-parts-of-a-work-are-release-tracks.md) | The parts of a work or medley are release tracks too | Accepted |
+| [0061](0061-renovate-for-dependency-updates.md) | Renovate for dependency updates | Accepted |
+| [0062](0062-license-gpl-3-or-later.md) | Licence: GPL-3.0-or-later (mutagen and Unidecode are GPL) | Accepted |
+| [0064](0064-logging-and-syslog.md) | Logging to standard output, and to syslog when SYSLOG_HOST is set | Accepted |
+| [0065](0065-quiet-polling-lines.md) | Successful polls of /api/library and /api/job stay out of the access log | Accepted |
+| [0066](0066-more-application-events-and-log-level.md) | Renames, tag edits and lyrics edits are logged; LOG_LEVEL | Accepted |
+| [0067](0067-stored-album-summaries.md) | Album summaries are stored in SQLite and the library is listed from the index | Accepted |
+| [0068](0068-playback-can-always-be-stopped.md) | Playback can always be stopped: a Stop button in the top bar, and it stops when the album is gone | Accepted |
+| [0069](0069-release-notes-and-commit-descriptions.md) | Release notes in CHANGELOG.md for every functional change; detailed commit descriptions | Accepted |
+| [0070](0070-releases.md) | Releases: version tag, versioned image on ghcr.io, GitHub release with the changelog notes | Accepted |
+| [0071](0071-readme-and-screenshots-at-every-release.md) | The README and its screenshots are updated at every release | Accepted |
+| [0072](0072-delete-the-staging-folder-after-a-move.md) | Offer to delete the album's staging folder after a move, with a list of what is left | Accepted |
+| [0074](0074-maximum-cover-size-setting.md) | The maximum cover size is a setting (default 1500) | Accepted |
+| [0075](0075-fingerprints-with-fpscan.md) | Fingerprints with fpscan instead of fpcalc | Accepted |
+| [0076](0076-staging-album-is-the-top-level-folder.md) | In the staging folder, a top-level folder is one album | Accepted |
+| [0077](0077-library-as-csv-for-other-programs.md) | The library as CSV for other programs (`/api/library/albums.csv`) | Accepted |
+| [0078](0078-musicbrainz-track-assignment-and-import-song-titles.md) | MusicBrainz track assignment and the "Import song titles" checkbox in both dialogs | Accepted |
+| [0079](0079-discogs-assignment-sets-the-album-artist.md) | ALBUMARTIST is a Discogs tag (assignment and Run fixes); the override is the exception | Accepted |
+| [0080](0080-discogs-leads-album-level-tags.md) | Discogs leads CATALOGNUMBER, ALBUM_FORMAT and the credits (overrides keep manual values); ARTIST goes with the title | Accepted |
+| [0081](0081-subtitle-dividers-in-track-lists.md) | Disc subtitles are dividers in the track lists (Tag Editor first, then the import dialogs) | Accepted |
+| [0082](0082-in-your-library-box.md) | "In your library" box: other versions of the album's Discogs master (`/api/library/versions`) | Accepted |
+| [0083](0083-inspector-note-boxes-and-year-mismatch.md) | One style for the inspector's note boxes (types, symbols, buttons); a year mismatch Discogs/MusicBrainz stops the move | Accepted |
+| [0084](0084-locally-built-image-deployment.md) | Deploy a locally built amd64 image on the server (supersedes 0063) | Accepted |
+| [0086](0086-data-table-list-view.md) | A data table for the list view: no covers, alternating rows, resizable and sortable columns | Accepted (row shades and layout superseded by 0087) |
+| [0087](0087-table-contrast.md) | Higher-contrast, full-bleed table with a DR column and sticky header | Accepted (sticky position superseded by 0088) |
+| [0088](0088-header-stays-at-inset.md) | The table title row stays at its 24 px inset while scrolling | Accepted |
+| [0089](0089-assignment-track-order.md) | Assignment dialogs list files in the release track's disc order | Accepted |
+| [0090](0090-artwork-types-and-cover-fields.md) | Embedded artwork by type, with four cover fields in the inspector | Accepted |
+| [0091](0091-artwork-sidecars-on-move.md) | Recreate cover files from embedded art when an album moves | Accepted |
+| [0092](0092-cover-controls-and-full-size-view.md) | Compact cover field controls and a double-click full-size view | Accepted |
+| [0093](0093-cover-preview-size.md) | Cover previews fill their field and show W×H in the header | Accepted |
+| [0094](0094-native-macos-app-in-rust.md) | A native macOS app in Rust (Tagwright macOS) | Accepted |
+
+> This repository is the native macOS client. ADR 0094 supersedes the deployment decision of
+> [0003](0003-deployment-web-app-in-docker.md), the web frontend of [0029](0029-nextjs-frontend-static-export.md),
+> and the Python-only stack bullets of [0005](0005-technology-stack-and-conventions.md),
+> [0034](0034-python-formatting-and-linting-with-ruff.md) and [0035](0035-automated-tests-with-pytest.md)
+> **for this repository**; the domain rules in those and every other ADR stand.
+
+## History: superseded ADRs
+
+Kept for the reasoning behind earlier decisions. Do not follow them; the ADR named in the status replaces them.
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [0004](0004-pipeline-engine-reuses-discogs-scripts.md) | The pipeline engine is the unchanged discogs scripts | Superseded by 0036 |
+| [0085](0085-list-view.md) | Switch the board between card view and a compact list view | Superseded by 0086 |
+| [0063](0063-publish-the-image-on-ghcr.md) | The image is published on GitHub's container registry (amd64 and arm64) | Superseded by 0084 |
+| [0006](0006-status-model-and-pipeline-steps.md) | Status comes from FLAC tags; six pipeline steps | Superseded by 0054 |
+| [0012](0012-language-and-performance.md) | Stay in Python; speed up compute inside the discogs scripts | Superseded by 0036 |
+| [0013](0013-discogs-track-assignment.md) | Discogs release search and track assignment | Superseded by 0053 |
+| [0017](0017-ui-layout-and-design-system.md) | UI layout and design system | Superseded by 0030 |
+| [0019](0019-version-control-and-releases.md) | Version control and releases | Superseded by 0020 |
+| [0022](0022-top-bar-instead-of-sidebar.md) | Top bar instead of a sidebar | Superseded by 0030 |
+| [0073](0073-fingerprints-despite-a-decoding-error.md) | A fingerprint that fpcalc printed despite a decoding error is used | Superseded by 0075 |
+| [0039](0039-incomplete-and-what-is-missing.md) | "Incomplete" instead of "Ready", and showing what is missing | Superseded by 0054 |
+| [0043](0043-assignment-refreshes-the-discogs-tags.md) | Assigning a Discogs release refreshes the Discogs-owned tags at once | Superseded by 0053 |
+| [0046](0046-discogs-medleys-are-one-release-track.md) | A Discogs medley (index entry with sub-tracks) is one release track | Superseded by 0053 |
+| [0047](0047-a-real-catalogue-number-replaces-none.md) | A real catalogue number replaces the placeholder `none` on assignment | Superseded by 0053 |
+| [0048](0048-reassignment-replaces-what-the-previous-release-filled.md) | Re-assigning replaces the release-level tags the previous release filled | Superseded by 0053 |
+| [0049](0049-tag-edits-refresh-the-version-at-once.md) | Editing format, catalog # or edition refreshes the Discogs tags (VERSION) at once | Superseded by 0054 |
+| [0050](0050-lyrics-are-optional.md) | Missing lyrics are an optional, blue notice; they do not block `fixed` or the move | Superseded by 0054 |
+| [0052](0052-discogs-search-by-attributes-and-musicbrainz-match.md) | The Discogs search starts with artist and album and marks MusicBrainz matches | Superseded by 0053 |
+
+## Which ADR covers what
+
+| If you change... | Read first |
+|------------------|-----------|
+| what the app is for, a new feature | 0002 |
+| Docker, environment variables, mounts | 0003 |
+| Run fixes, the pipeline steps, `drcalc`, anything that used to be a discogs script | 0036, 0054 |
+| backend dependencies | 0005 |
+| Python formatting, linting, annotations, `pyproject.toml` | 0034 |
+| tests, fixtures, the `test` dependency group | 0035, 0018 |
+| the library as CSV for other programs (`/api/library/albums.csv`) | 0077, 0067 |
+| the "In your library" box, other versions of a master (`/api/library/versions`) | 0082, 0067 |
+| inspector note boxes (Problem, Mismatch, Missing, Optional, Note), their symbols and buttons, the year mismatch that stops the move | 0083, 0023, 0054 |
+| the `pipeline/` package, API clients, Discogs tags, `drcalc` | 0036, 0014, 0053 |
+| the output folder layout, the watcher, the Library tab, the status indicator, Move to library | 0037, 0010, 0011 |
+| the Staging / Library switch, folder names, which folders the UI may read | 0038, 0007 |
+| status names, the Missing box, the missing badges on cards | 0054 |
+| track rows and the badges on them (channels) | 0040, 0015 |
+| frontend stack, `ui/`, building `static/ui/` | 0029 |
+| statuses, steps, lyrics rules, optional lyrics, scan cache, what is missing | 0054 |
+| paths, endpoints, secrets, access | 0007 |
+| jobs, queue, log, endpoints that write | 0008 |
+| settings dialog, API keys, config overlay | 0009, 0044 (no lrclib key), 0045 (folders read-only) |
+| file names, `rename_files`, `clean()` | 0010 |
+| Move to ingest | 0011, 0091 |
+| Discogs search, track assignment, filled tags, re-assignment | 0053, 0089 |
+| MusicBrainz search, MusicBrainz tags | 0023, 0078 |
+| tag editor, override pencils, which tags are editable | 0014 |
+| play button, track edit dialog, lyrics editing | 0015, 0021 (artist field, lrclib search) |
+| cover display, size warning, cover upload | 0016, 0090 |
+| cover delete | 0024, 0090 |
+| artwork types, cover fields, embedded vs folder images | 0090 |
+| cover files created on a move | 0091, 0011, 0037 |
+| fingerprint length | 0025 |
+| parallel tag writes by pipeline scripts (lost tags), step order and concurrency in `nzbfix` | 0032, 0033 |
+| dynamic-range tag names | 0005, 0027 |
+| ReplayGain skip | 0028 |
+| top bar navigation entries, view switch | 0031, 0026, 0086 |
+| layout, colours, widths, dialogs, UI styling | 0030 (colours, cards, dialogs), 0031 (top bar), 0086 (list table), 0087 (table contrast), 0088 (sticky title row) |
+| how to test | 0018 |
+| commits, pushing, tags (no branches), release notes, commit descriptions, making a release, README and screenshots | 0020, 0069, 0070, 0071 |
+| Docker image build, publishing and the server's stack | 0084, 0003 |

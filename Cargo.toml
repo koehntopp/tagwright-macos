@@ -1,0 +1,28 @@
+[package]
+name = "tagwright-macos"
+version = "0.1.0"
+edition = "2024"
+description = "Native macOS client for Tagwright: clean, tag and organise a music library"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/koehntopp/tagwright-macos"
+
+[[bin]]
+name = "tagwright"
+path = "src/main.rs"
+
+[dependencies]
+cacao = { version = "0.4.0-beta2", default-features = false, features = ["appkit", "autolayout"] }
+lofty = "0.25"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+regex = "1"
+deunicode = "1"
+unicode-normalization = "0.1"
+
+[profile.release]
+lto = "thin"

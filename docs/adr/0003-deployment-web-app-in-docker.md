@@ -1,0 +1,21 @@
+# ADR 0003: Deployment: a web app in Docker on a Linux server
+
+- **Status**: Superseded by ADR 0094 for this repository (Tagwright macOS is a native app, not a web app in Docker; the original Accepted status and reasoning stand for the `tagwright` repository)
+- **Date**: 2026-11-08
+
+## Context
+
+The first idea was a native macOS app. The pipeline needs `rsgain`, Python tools, `fpcalc`, `flac` and long-running work on a large library that lives on a NAS share. A native app would have to bundle or locate all of these on a Mac, and the work should run next to the files.
+
+## Decision
+
+- Tagwright is a **web app served by a Linux server**, packaged as a Docker image (`Dockerfile`, `compose.yaml`). The browser is the only client.
+- The image holds Python 3.14, `uv`, `fpscan` (built in a Rust stage, [0075](0075-fingerprints-with-fpscan.md); was `chromaprint-tools`), `drcalc` (release binary for the build architecture, SHA256 checked) and `rsgain` (built from source in a build stage; no package exists; only its runtime libraries are installed in the final image). Nothing is expected in the build context.
+- Mounts: the staging and library folders from host paths given in a `.env` file, and `./data` at `/data` ([0055](0055-no-default-paths.md)).
+- The same code runs directly on macOS for development: `STAGING_FOLDER=... LIBRARY_FOLDER=... ./app.py` (shebang `uv run`).
+- Environment: `STAGING_FOLDER`, `LIBRARY_FOLDER`, `DATA_DIR`, `PORT` (default 8080); the three paths have no default ([0055](0055-no-default-paths.md)). Paths must be absolute; `~` is expanded by the app but a relative path is a startup error.
+
+## Consequences
+
+- Anything the browser needs from the filesystem goes through the API (covers, audio). Paths shown in the UI are server paths; the UI never assumes they exist on the client. This is why the external-editor link (a `yate://` URL with a client-side path mapping) was removed in favour of the internal tag editor ([0014](0014-internal-tag-editor.md)).
+- The image was built (aarch64, 527 MB) and checked on scratch data: server starts, `/api/albums` and `/api/library` answer, `fpcalc`, `drcalc` and `rsgain` write their tags. Not run in the container: the full pipeline (needs a Discogs key and release), and an amd64 build.

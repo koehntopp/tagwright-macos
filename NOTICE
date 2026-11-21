@@ -1,0 +1,21 @@
+# NOTICE
+
+Tagwright macOS is distributed under the GNU General Public License, version 3 or later. It builds
+on the following third-party software, used under their respective licences (see the `LICENSE` file
+of each dependency for the exact text):
+
+- [`cacao`](https://github.com/ryanmcgrath/cacao) — MIT OR MPL-2.0 — AppKit bindings.
+- [`lofty`](https://github.com/Serial-ATA/lofty-rs) — MPL-2.0 — audio metadata (FLAC, ID3v2).
+- [`deunicode`](https://github.com/kornelski/deunicode) — MIT OR Apache-2.0 — ASCII transliteration.
+- [`unicode-normalization`](https://github.com/unicode-rs/unicode-normalization) — MIT OR Apache-2.0.
+- [`image`](https://github.com/image-rs/image) — MIT OR Apache-2.0 — cover image dimensions.
+- [`regex`](https://github.com/rust-lang/regex) — MIT OR Apache-2.0.
+- [`serde`](https://github.com/serde-rs/serde) and [`serde_json`](https://github.com/serde-rs/json)
+  — MIT OR Apache-2.0.
+- [`thiserror`](https://github.com/dtolnay/thiserror) and [`anyhow`](https://github.com/dtolnay/anyhow)
+  — MIT OR Apache-2.0.
+- [`log`](https://github.com/rust-lang/log) and [`env_logger`](https://github.com/rust-cli/env_logger)
+  — MIT OR Apache-2.0.
+
+The full, transitive list is produced at build time by `cargo tree`; the above are the direct
+dependencies the program logic relies on.

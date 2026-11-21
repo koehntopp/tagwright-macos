@@ -1,0 +1,53 @@
+# ADR 0002: Purpose, scope and use cases
+
+- **Status**: Accepted
+- **Date**: 2026-11-08
+
+## Context
+
+The owner keeps a FLAC library and uses the `discogs` repository (`nzbfix.py` and its scripts) to turn freshly downloaded albums (a completed-downloads folder) into clean, tagged, loudness-analysed albums with lyrics, then moves them to an ingestion folder read by a music server (Roon, via bliss-style file names). That pipeline is a set of command-line scripts. Tagwright is a UI around that flow.
+
+## Decision
+
+Tagwright is a single-user, self-hosted web app that lets one person work through a queue of downloaded albums: see what each album needs, fix it, correct what automation cannot, and hand it to the library.
+
+### Use cases
+
+| ID | Use case | Where documented |
+|----|----------|------------------|
+| UC-1 | See which staging and library folder the app uses (set by the environment or the container mounts) and enter the Discogs API key. | [0009](0009-settings-and-api-keys.md) |
+| UC-2 | See all album folders of the input folder with cover, artist, album, year, edition, Discogs and MusicBrainz IDs, album DR, lyrics counts and a pipeline progress bar; filter by status, sort, search. | [0054](0054-album-status-and-steps-consolidated.md), [0030](0030-ui-layout-and-design-system-v2.md) |
+| UC-3 | Run the fix pipeline for one album and follow a live log. | [0004](0004-pipeline-engine-reuses-discogs-scripts.md), [0008](0008-job-model.md) |
+| UC-4 | See per pipeline step whether it is done, and which tracks are missing it. | [0054](0054-album-status-and-steps-consolidated.md) |
+| UC-5 | Move a fully fixed album to the ingest folder. | [0011](0011-ingestion-move.md) |
+| UC-6 | Give an album the right Discogs release: search Discogs, assign the album's files to the release's tracks (the album often holds only a subset), renumber, and fill the tags the pipeline expects a tagger to have imported (artist, album artist, album title, catalog number, cover) when they are missing. | [0053](0053-discogs-search-and-assignment-consolidated.md) |
+| UC-7 | Edit tags the pipeline never overwrites (album artist/title overrides, format, edition, catalog number, MusicBrainz ID, per-track title/artist/disc/track/disc subtitle) and see, read-only, what Discogs writes. | [0014](0014-internal-tag-editor.md) |
+| UC-8 | Play a track; edit a track's lyrics, optionally searching lrclib.net under another title or artist. | [0015](0015-track-playback-and-track-edit.md), [0021](0021-lrclib-lyrics-search.md) |
+| UC-9 | See the cover's pixel size, be warned when it is small, replace it by uploading or dropping an image, delete the embedded cover, open cover searches on external sites. | [0016](0016-cover-art.md) |
+| UC-10 | Rename files to the bliss pattern automatically after fixes and after edits. | [0010](0010-bliss-file-naming.md) |
+| UC-11 | Choose the MusicBrainz release of an album (search, using the album's Discogs release to find the same release) and write its ID and links (release group, album artist, artist), and assign the files to its tracks, optionally importing its titles. | [0023](0023-musicbrainz-release-search.md), [0078](0078-musicbrainz-track-assignment-and-import-song-titles.md) |
+| UC-12 | Keep the output folder in the canonical artist/album/disc/file layout automatically (a watcher with a cooldown). | [0037](0037-library-watcher-and-layout.md) |
+| UC-13 | Configure that layout in Settings with drag and drop and preview it on a real album. | [0037](0037-library-watcher-and-layout.md) |
+| UC-14 | See the library's state in the top bar (album artists, albums, tracks, activity, unplaced files) and re-analyse it by hand. | [0037](0037-library-watcher-and-layout.md) |
+| UC-15 | Switch the board between the staging folder and the library folder to fix details of albums that are already in the library. | [0038](0038-staging-and-library-views.md) |
+| UC-16 | Let other programs read the library's albums as CSV from Tagwright instead of a hand-made export. | [0077](0077-library-as-csv-for-other-programs.md) |
+| UC-17 | See which other versions of an album (the same Discogs master) are already in the library. | [0082](0082-in-your-library-box.md) |
+| UC-18 | Switch the board between the card grid and a compact, sortable table of album artist, release name, media, edition, catalog number, dynamic range, release year and master year, with the same selection, filters and inspector in both views. | [0087](0087-table-contrast.md) |
+| UC-19 | See and edit embedded artwork by type in the inspector: one front cover and any number of back, leaflet and media images. | [0090](0090-artwork-types-and-cover-fields.md) |
+| UC-20 | Recreate cover files on disk from embedded artwork when tracks move into the library. | [0091](0091-artwork-sidecars-on-move.md) |
+
+### Audio formats
+
+FLAC and MP3 files, alone or mixed in one album ([0059](0059-mp3-support.md)). M4A, Ogg and other formats are out of scope.
+
+### Out of scope
+
+- Multi-user access, authentication, per-user settings ([0007](0007-trust-boundary-and-secrets.md)).
+- A native macOS app (rejected, [0003](0003-deployment-web-app-in-docker.md)).
+- The `lrc_fix` flow and the discogs repo's own `webui.py`; Tagwright does not replace or call them.
+- ~~MusicBrainz tracklist assignment~~ (release search: [0023](0023-musicbrainz-release-search.md); track assignment added by [0078](0078-musicbrainz-track-assignment-and-import-song-titles.md)).
+- Editing audio, or any tag not listed in [0014](0014-internal-tag-editor.md).
+
+## Consequences
+
+New features must map to a use case here or add one (with an ADR). Features outside the scope above need an ADR that changes this one.
