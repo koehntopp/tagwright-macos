@@ -64,3 +64,26 @@ struct SoftButton: ButtonStyle {
 			.opacity(enabled ? (c.isPressed ? 0.8 : 1) : 0.5)
 	}
 }
+
+/// Small round icon button like the web app's (`rounded-full p-1 hover:bg-white`): a 24 pt hit area with a
+/// hover fill, so pen and play controls are easy to find and hit.
+struct IconButton: ButtonStyle {
+	var size: CGFloat = 24
+	var color = Color.ink
+	var hover = Color.white
+	func makeBody(configuration c: Configuration) -> some View { IconBody(c: c, style: self) }
+	struct IconBody: View {
+		let c: Configuration, style: IconButton
+		@State private var over = false
+		@Environment(\.isEnabled) private var enabled
+		var body: some View {
+			c.label.font(.system(size: style.size * 0.5, weight: .semibold))
+				.foregroundStyle(enabled ? style.color : Color.muted.opacity(0.5))
+				.frame(width: style.size, height: style.size)
+				.background(Circle().fill(c.isPressed ? Color.black.opacity(0.12) : over && enabled ? style.hover : .clear))
+				.overlay(Circle().stroke(Color.black.opacity(over && enabled ? 0.08 : 0)))
+				.contentShape(Circle())
+				.onHover { over = $0 }
+		}
+	}
+}

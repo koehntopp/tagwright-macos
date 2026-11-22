@@ -759,7 +759,7 @@ struct TagEditorSheet: View {
 			HStack(spacing: 8) {
 				Text(id.isEmpty ? "missing" : id).font(.system(size: 12, weight: .medium, design: id.isEmpty ? .default : .monospaced)).foregroundStyle(id.isEmpty ? Color(hex: 0xbe123c) : Color.ink)
 					.padding(.horizontal, 10).padding(.vertical, 4).background(id.isEmpty ? Color(hex: 0xffe4e6) : Color.board, in: Capsule())
-				Button(action: pen) { Image(systemName: "pencil") }.buttonStyle(.plain)
+				Button(action: pen) { Image(systemName: "pencil") }.buttonStyle(IconButton(hover: Color.board)).help("Search")
 			}
 		}.frame(maxWidth: .infinity, alignment: .topLeading)
 	}
@@ -781,7 +781,7 @@ struct TagEditorSheet: View {
 						Pill(text: t.formatLabel, bg: .white).frame(width: 70)
 						Pill(text: t.channelsLabel, fg: Color.ink.opacity(0.7), bg: Color(hex: 0xe5e7eb)).frame(width: 62)
 						Group { switch t.lyricsKind { case .lrc: Pill(text: "LRC", fg: .white, bg: .ok); case .txt: Pill(text: "TXT", fg: .black, bg: .warn); case .instr: Pill(text: "INS", fg: .white, bg: .info); case .none: Pill(text: "---", fg: .white, bg: .bad) } }.frame(width: 44)
-						Button { lyricsFor = t } label: { Image(systemName: "pencil").font(.system(size: 11)) }.buttonStyle(.plain).frame(width: 24)
+						Button { lyricsFor = t } label: { Image(systemName: "pencil") }.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Edit lyrics")
 					}
 				}
 			}.onMove { from, to in order.move(fromOffsets: from, toOffset: to); renumber() }

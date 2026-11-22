@@ -29,6 +29,7 @@ final class AppState: ObservableObject {
 	@Published var runningStep: StepID?
 	@Published var toast: String?
 	@Published var playing: String?
+	@Published var paused = false
 	@Published var sheet: Sheet?
 	@Published var fullCover: Cover?
 	@Published var lyricsTrack: String?
@@ -405,7 +406,12 @@ final class AppState: ObservableObject {
 	// MARK: playback (ADR 0015, 0068)
 
 	func play(_ t: Track) {
-		if playing == t.id { stopPlayback(); return }
+		if playing == t.id, let player {   // same track: pause / resume (web: Play/Pause)
+			if paused { player.play() } else { player.pause() }
+			paused.toggle(); return
+		}
+		player?.pause()
+		paused = false
 		player = AVPlayer(url: t.url)
 		player?.play()
 		playing = t.id
@@ -413,7 +419,7 @@ final class AppState: ObservableObject {
 			Task { @MainActor in self?.stopPlayback() }
 		}
 	}
-	func stopPlayback() { player?.pause(); player = nil; playing = nil }
+	func stopPlayback() { player?.pause(); player = nil; playing = nil; paused = false }
 
 	func chooseFolder(_ forStaging: Bool) {
 		let p = NSOpenPanel()
