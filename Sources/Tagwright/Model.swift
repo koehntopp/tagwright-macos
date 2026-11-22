@@ -104,6 +104,7 @@ struct Track: Identifiable {
 		return .txt
 	}
 	var channelsLabel: String { info.channels == 1 ? "Mono" : info.channels == 2 ? "Stereo" : "\(info.channels)ch" }
+	var formatHelp: String { formatLabel.contains("/") ? "Sample rate in kHz / bit depth" : "Sample rate in kHz" }
 	var formatLabel: String {
 		let r = Double(info.sampleRate) / 1000
 		return "\(r == r.rounded() ? String(Int(r)) : String(format: "%.1f", r))/\(info.bits == 0 ? 16 : info.bits)"
@@ -142,6 +143,7 @@ struct Album: Identifiable {
 	var format: String { first("ALBUM_FORMAT") }
 	var catalog: String { first("CATALOGNUMBER", "CATALOG NUMBER", "CATALOGNUM", "LABELNO") }
 	var version: String { first("VERSION") }
+	var country: String { first("DISCOGS_ALBUM_RELEASECOUNTRY", "COUNTRY", "MUSICBRAINZ_ALBUM_RELEASECOUNTRY") }
 	var discogsID: String { first("DISCOGS_RELEASE_ID") }
 	/// The digits of DISCOGS_MASTER_ID (`m<number>`), empty without a master (ADR 0082).
 	var masterID: String { first("DISCOGS_MASTER_ID").trimmingCharacters(in: CharacterSet(charactersIn: "mM ")) }
@@ -246,6 +248,37 @@ struct Album: Identifiable {
 	}
 
 	var multiDisc: Bool { tracks.contains { (Int($0.disc) ?? 1) > 1 } || tracks.contains { (Int($0.tags.first("DISCTOTAL", "TOTALDISCS")) ?? 1) > 1 } }
+}
+
+/// The flag emoji of a release country (web lib/flags.ts): Discogs writes names ("UK", "Germany", "Europe"),
+/// MusicBrainz ISO codes ("DE", "XE"). Empty when there is none (Worldwide, Scandinavia, ...).
+enum Flag {
+	static let alias: [String: String] = [
+		"uk": "GB", "uk & ireland": "GB", "uk & europe": "GB", "us": "US", "usa": "US", "us & canada": "US", "europe": "EU", "xe": "EU",
+		"ussr": "RU", "russia": "RU", "czech republic": "CZ", "czechia": "CZ", "south korea": "KR", "korea": "KR", "taiwan": "TW",
+		"hong kong": "HK", "vietnam": "VN", "bosnia & herzegovina": "BA", "trinidad & tobago": "TT", "serbia & montenegro": "RS",
+		"east germany": "DE", "west germany": "DE", "germany, austria, & switzerland": "DE", "netherlands": "NL",
+	]
+	static let byName: [String: String] = {
+		let en = Locale(identifier: "en")
+		var m: [String: String] = [:]
+		for r in Locale.Region.isoRegions where r.identifier.count == 2 { if let n = en.localizedString(forRegionCode: r.identifier) { m[n.lowercased()] = r.identifier } }
+		return m
+	}()
+
+	static func code(_ country: String) -> String {
+		let c = country.trimmingCharacters(in: .whitespaces)
+		if c.isEmpty { return "" }
+		if let a = alias[c.lowercased()] { return a }
+		if c.count == 2, c.allSatisfy({ $0.isASCII && $0.isLetter }) { return c.uppercased() }
+		return byName[c.lowercased()] ?? ""
+	}
+
+	static func of(_ country: String) -> String {
+		let c = code(country)
+		guard c.count == 2 else { return "" }
+		return String(String.UnicodeScalarView(c.unicodeScalars.compactMap { Unicode.Scalar(0x1F1A5 + $0.value) }))
+	}
 }
 
 // MARK: discovery

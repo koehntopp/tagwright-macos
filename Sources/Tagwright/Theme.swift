@@ -24,10 +24,12 @@ struct Pill: View {
 	var fg: Color = .ink
 	var bg: Color = .white
 	var mono = false
+	var border = false
 	var body: some View {
 		Text(text).font(.system(size: 11, weight: .medium, design: mono ? .monospaced : .default))
 			.foregroundStyle(fg).padding(.horizontal, 8).padding(.vertical, 2)
 			.background(bg, in: Capsule())
+			.overlay { if border { Capsule().stroke(Color(hex: 0xe2e8f0)) } }
 	}
 }
 

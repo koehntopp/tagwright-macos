@@ -39,7 +39,16 @@ struct Inspector: View {
 			VStack(alignment: .leading, spacing: 6) {
 				editable(a.artist, size: 14, weight: .regular, color: Color.muted)
 				editable(a.title, size: 24, weight: .semibold, color: .ink)
-				Text([a.year, a.format].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(size: 14)).foregroundStyle(Color.muted)
+				// web: flag, then VERSION (it already holds year, DR, format and catalogue number), then a copy button
+				HStack(spacing: 4) {
+					let flag = Flag.of(a.country)
+					Text((flag.isEmpty ? "" : flag + " ") + (a.version.isEmpty ? [a.year, a.format.isEmpty ? "CD" : a.format, a.catalog].filter { !$0.isEmpty }.joined(separator: " · ") : a.version))
+						.font(.system(size: 14)).foregroundStyle(Color.muted).textSelection(.enabled).help(a.country)
+					if !a.catalog.isEmpty, a.catalog.lowercased() != "none" {
+						Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(a.catalog, forType: .string); app.notify("Copied") } label: { LucideIcon(icon: .copy, size: 12) }
+							.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Copy the catalogue number")
+					}
+				}
 				HStack(spacing: 8) {
 					idBadge(a.discogsID, icon: AnyView(Image(systemName: "opticaldisc.fill").foregroundStyle(Color.ink)), url: "https://www.discogs.com/release/\(a.discogsID)") { app.sheet = .discogs }
 					idBadge(a.mbid, icon: AnyView(Image(systemName: "hexagon.fill").foregroundStyle(LinearGradient(colors: [Color(hex: 0xba478f), Color(hex: 0xeb743b)], startPoint: .leading, endPoint: .trailing))), url: "https://musicbrainz.org/release/\(a.mbid)") { app.sheet = .musicbrainz }
@@ -236,9 +245,9 @@ struct Inspector: View {
 					Text(t.title).font(.system(size: 13)).lineLimit(1)
 					Spacer(minLength: 4)
 					if let m = missing { Image(systemName: m.contains(t.id) ? "xmark" : "checkmark").foregroundStyle(m.contains(t.id) ? Color.bad : Color.ok).font(.system(size: 12, weight: .bold)) }
-					Text(Self.mmss(t.info.duration)).font(.system(size: 12)).foregroundStyle(Color.muted).monospacedDigit()
+					Text(Self.mmss(t.info.duration)).font(.system(size: 12)).foregroundStyle(Color.muted).monospacedDigit().frame(width: 38, alignment: .trailing)
 					Pill(text: t.channelsLabel, fg: Color.ink.opacity(0.7), bg: Color(hex: 0xe5e7eb))
-					Pill(text: t.formatLabel, bg: .white)
+					Pill(text: t.formatLabel, fg: Color(hex: 0x334155), bg: .white, border: true).monospacedDigit().frame(width: 72).help(t.formatHelp)
 					if !t.dr.isEmpty { DRBadge(value: t.dr) } else { Pill(text: "---", fg: Color.muted, bg: Color(hex: 0xe5e7eb)) }
 					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { lyricBadge(t) }.buttonStyle(.plain)
 					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton()).help("Edit lyrics")

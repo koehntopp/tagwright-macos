@@ -789,7 +789,7 @@ struct TagEditorSheet: View {
 						cell(id, "DISCNUMBER").frame(width: 44); cell(id, "TRACKNUMBER").frame(width: 44)
 						cell(id, "TITLE"); cell(id, "ARTIST")
 						Text(Inspector.mmss(t.info.duration)).font(.system(size: 12)).foregroundStyle(Color.muted).frame(width: 42)
-						Pill(text: t.formatLabel, bg: .white).frame(width: 70)
+						Pill(text: t.formatLabel, fg: Color(hex: 0x334155), bg: .white, border: true).monospacedDigit().frame(width: 72).help(t.formatHelp)
 						Pill(text: t.channelsLabel, fg: Color.ink.opacity(0.7), bg: Color(hex: 0xe5e7eb)).frame(width: 62)
 						Group { switch t.lyricsKind { case .lrc: Pill(text: "LRC", fg: .white, bg: .ok); case .txt: Pill(text: "TXT", fg: .black, bg: .warn); case .instr: Pill(text: "INS", fg: .white, bg: .info); case .none: Pill(text: "---", fg: .white, bg: .bad) } }.frame(width: 44)
 						Button { lyricsFor = t } label: { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton(hover: Color.board)).help("Edit lyrics")
