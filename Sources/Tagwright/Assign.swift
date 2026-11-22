@@ -50,6 +50,10 @@ enum Assign {
 		let maxRate = album.tracks.map(\.info.sampleRate).max() ?? 44100
 		let plan = Self.plan(first: first, release: r, masterTitle: mTitle, masterYear: mYear, maxRate: maxRate)
 		let urls = album.tracks.map(\.url)
+		let mbid = first.first("MUSICBRAINZ_ALBUMID", "MUSICBRAINZ ALBUM ID").trimmingCharacters(in: .whitespaces)
+		let langs = mbid.isEmpty ? nil : await MusicBrainz.trackLanguages(mbid)
+		if !mbid.isEmpty, langs == nil { log("MusicBrainz lookup failed for \(mbid): LYRICS_LANGUAGE left as it is") }
+		let maxCover = UserDefaults.standard.object(forKey: "maxCover") as? Int ?? 1500
 		let changed = try await Task.detached { () -> Int in
 			var n = 0
 			try Pipeline.update(urls) { _, t in
@@ -59,10 +63,17 @@ enum Assign {
 				for k in ["WORK", "PART"] { t[k] = nil }
 				let set = t.first("SET SUBTITLE").trimmingCharacters(in: .whitespaces)
 				t["DISCSUBTITLE"] = set.isEmpty ? nil : [set]
+				// A matched track with no sung language loses the tag, except the instrumental marker of the lyrics step.
+				if let langs, let m = MusicBrainz.findTrack(langs, tags: t) {
+					if !m.languages.isEmpty { t["LYRICS_LANGUAGE"] = m.languages }
+					else if t.first("LYRICS_LANGUAGE").lowercased() != "zxx" { t["LYRICS_LANGUAGE"] = nil }
+				}
 				if NSDictionary(dictionary: before) != NSDictionary(dictionary: t) { n += 1 }
 			}
 			return n
 		}.value
+		let resized = try await Task.detached { try Pipeline.resizeCovers(files: urls, max: maxCover) }.value
+		if resized > 0 { log("Album art resized to at most \(maxCover) px in \(resized) files") }
 		log("Discogs tags refreshed on \(changed) of \(urls.count) files [\(plan["VERSION"]?.first ?? "")]")
 	}
 

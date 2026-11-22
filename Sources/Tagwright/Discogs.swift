@@ -374,6 +374,37 @@ enum MusicBrainz {
 			country: r["country"] as? String ?? "", status: r["status"] as? String ?? "", tracks: tracks, trackArtistIDs: ids)
 	}
 
+	/// languages.py: the sung languages per release track (union over the recording's works), or nil when
+	/// MusicBrainz could not be asked. Needs recording-level-rels besides work-rels, or the languages are missing.
+	struct LangTrack { var id: String; var disc: Int; var position: Int; var title: String; var languages: [String] }
+	static func trackLanguages(_ id: String) async -> [LangTrack]? {
+		guard let r = try? await get("release/\(id)", ["inc": "recordings+recording-level-rels+work-rels"]) else { return nil }
+		var out: [LangTrack] = []
+		for m in r["media"] as? [[String: Any]] ?? [] {
+			for t in m["tracks"] as? [[String: Any]] ?? [] {
+				var langs: [String] = []
+				for rel in (t["recording"] as? [String: Any])?["relations"] as? [[String: Any]] ?? [] {
+					guard let w = rel["work"] as? [String: Any] else { continue }
+					let l = (w["languages"] as? [String]).flatMap { $0.isEmpty ? nil : $0 } ?? [w["language"] as? String].compactMap { $0 }
+					for x in l where !langs.contains(x) { langs.append(x) }
+				}
+				out.append(LangTrack(id: t["id"] as? String ?? "", disc: m["position"] as? Int ?? 1, position: t["position"] as? Int ?? 0, title: t["title"] as? String ?? "", languages: langs))
+			}
+		}
+		return out
+	}
+
+	/// The release track a file is: by MUSICBRAINZ_RELEASETRACKID, else by disc/track when the title agrees
+	/// (another edition has the same positions, other songs).
+	static func findTrack(_ tracks: [LangTrack], tags t: Tags) -> LangTrack? {
+		let rid = t.first("MUSICBRAINZ_RELEASETRACKID").trimmingCharacters(in: .whitespaces)
+		if !rid.isEmpty, let hit = tracks.first(where: { $0.id == rid }) { return hit }
+		let disc = Int(t.first("DISCNUMBER").split(separator: "/").first?.trimmingCharacters(in: .whitespaces) ?? "") ?? 1
+		let no = Int(t.first("TRACKNUMBER").split(separator: "/").first?.trimmingCharacters(in: .whitespaces) ?? "") ?? 0
+		guard let hit = tracks.first(where: { $0.disc == disc && $0.position == no }) else { return nil }
+		return Assign.similarity(hit.title, t.first("TITLE")) >= 0.6 ? hit : nil
+	}
+
 	static func release(_ id: String) async -> MBRelease? {
 		guard let r = try? await get("release/\(id)", ["inc": "release-groups+url-rels+recordings"]) else { return nil }
 		let discogs = (r["relations"] as? [[String: Any]] ?? []).compactMap { rel -> Int? in

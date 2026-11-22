@@ -5,7 +5,6 @@ Done in this port: status model and steps (0054), bliss names (0010), layout and
 ## Still missing
 - MP3 (ID3v2.4): tagging, naming, analysis, mixed albums (0058/0059).
 - Tag editor Tracks tab: subtitle dividers, "+ divider here", checkbox range selection (0081). Assignment dialogs: Release/Keep-mine subtitle choice (0081), re-assignment replacing the previous release's values (0053), disc order for multi-disc proposals (0089).
-- MusicBrainz language tags (LYRICS_LANGUAGE) in the Tags step (0023); ReplayGain skip when album gain exists (0028); cover resize in Run fixes (0074).
 - Settings: layout tab, per-step Settings of ReplayGain targets; logging to a file/syslog (0064-0066).
 - Free-text fixes: Discogs master ID in the album summaries.
 - Cover search links (0056), persistent column widths in the list (0086).
@@ -19,7 +18,8 @@ Endpoint coverage (native = equivalent in-process function):
 - Missing: `/api/library*` (versions, status, rescan, preview, albums.csv) = watcher, planner, executor, index, summaries, template modules (about 1,200 lines of web code, none ported).
 
 Module coverage:
-- Missing: `mp3.py` (295 lines, ID3v2.4), `library/*` (see above), `logconfig.py`, `languages.py` (LYRICS_LANGUAGE from MusicBrainz), `covers.py` (resize), `artwork.py` sidecar export (`sidecar_names`, `export`), `replaygain.has_album_gain` skip.
+- Missing: `mp3.py` (295 lines, ID3v2.4), `library/*` (see above), `logconfig.py`, `artwork.py` sidecar export (`sidecar_names`, `export`).
+- Done in the Tags step (`Assign.fixTags`): `languages.py` (LYRICS_LANGUAGE per track from MUSICBRAINZ_ALBUMID, matched by release-track ID or disc/track plus title), `covers.py` resize to the maximum cover size; `replaygain.has_album_gain` skip in `Pipeline.replayGain`. Differences: MusicBrainz answers are cached for the session only (web: 30 days on disk); a track MusicBrainz lists without a language keeps a `zxx` set by the lyrics step (web: removed, then set again by the next lyrics run); no settings to switch the language lookup or the ReplayGain skip off (web: both on by default).
 - Done, `lyrics.py` + `lrc_format.py` (Lrc.swift): existing-LRC repair, normalisation, capitalisation, search variants, failed vs not found, zxx marker, invalid-timestamp rejection, suspect reasons in the editor. Not ported: parallel lookups (8 workers) and the retry rounds / circuit breaker of `lrclib.py` (native: sequential, up to 3 attempts per lookup, failed tracks are reported and retried on the next run).
 - Done, `layout.py` (`Scanner`): `Disc N` / `CD N` with any spacing, all audio below a disc folder, a disc folder directly in the library root is its own album; checked on 2- and 8-disc staging albums linked into a library layout (`LayoutTests`, `TW_MULTIDISC`). Differs on purpose: `Album/CD1/Bonus` stays part of `Album` (the web app also lists `Bonus` as a second album).
 

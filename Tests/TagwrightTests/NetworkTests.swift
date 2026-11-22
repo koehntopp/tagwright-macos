@@ -11,5 +11,10 @@ final class NetworkTests: XCTestCase {
 		let d = try await MusicBrainz.detail(try XCTUnwrap(hits.first).id)
 		print("tracks", d.tracks.count, d.tracks.first?.title ?? "")
 		XCTAssertEqual(d.tracks.count, 9)
+		let l = await MusicBrainz.trackLanguages(d.id)
+		let langs = try XCTUnwrap(l, "languages.py lookup")
+		print("languages", langs.map { "\($0.position):\($0.languages.joined(separator: "+"))" }.joined(separator: " "))
+		XCTAssertEqual(langs.count, 9)
+		XCTAssertTrue(langs.contains { $0.languages.contains("eng") }, "work languages need recording-level-rels")
 	}
 }

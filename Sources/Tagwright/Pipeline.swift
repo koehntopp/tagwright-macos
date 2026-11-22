@@ -202,7 +202,13 @@ enum Pipeline {
 		return GainResult(tracks: out, albumGain: -18 - album, albumPeak: per.map(\.peak).max() ?? 0)
 	}
 
+	/// True when every file carries REPLAYGAIN_ALBUM_GAIN; track gain alone is not enough (ADR 0028).
+	static func hasAlbumGain(_ files: [URL]) -> Bool {
+		!files.isEmpty && files.allSatisfy { !((try? FlacFile(url: $0))?.tags.first("REPLAYGAIN_ALBUM_GAIN") ?? "").isEmpty }
+	}
+
 	static func replayGain(files: [URL], log: Log) throws {
+		if hasAlbumGain(files) { log("Album gain already on every file: skipped"); return }
 		let r = try replayGainValues(files: files)
 		for (f, t) in zip(files, r.tracks) {
 			log(String(format: "%+.2f dB  %@", t.gain, f.lastPathComponent))
@@ -215,6 +221,23 @@ enum Pipeline {
 			}
 		}
 		log(String(format: "Album gain %+.2f dB", r.albumGain))
+	}
+
+	/// Embedded JPEG/PNG pictures larger than `max` on either side are scaled down (ADR 0042/0074); returns the
+	/// number of files rewritten. Undecodable or small pictures stay as they are.
+	static func resizeCovers(files: [URL], max: Int) throws -> Int {
+		var n = 0
+		for u in files {
+			var f = try FlacFile(url: u)
+			var changed = false
+			for (i, p) in f.pictures.enumerated() where ["image/jpeg", "image/png"].contains(p.mime) && p.data.count >= 100 {
+				guard let (w, h) = ImageSize.of(p.data), Swift.max(w, h) > max, let (d, mime, nw, nh) = ImageSize.embeddable(p.data, max: max) else { continue }
+				f.pictures[i] = Picture(type: p.type, mime: mime, desc: p.desc, width: UInt32(nw), height: UInt32(nh), data: d)
+				changed = true
+			}
+			if changed { try f.save(); n += 1 }
+		}
+		return n
 	}
 
 	// MARK: 3. AcoustID fingerprints (native Chromaprint, ADR 0075)
