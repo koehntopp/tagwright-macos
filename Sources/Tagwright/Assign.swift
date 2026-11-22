@@ -43,7 +43,7 @@ enum Assign {
 
 	/// The Tags & cover step: rewrite every file with the Discogs data (fixtags.fix_album). The album must have a release ID.
 	static func fixTags(album: Album, log: Log) async throws {
-		guard let firstURL = album.tracks.first?.url, let first = try? FlacFile(url: firstURL).tags else { throw StepError("No readable file") }
+		guard let firstURL = album.tracks.first?.url, let first = try? AudioFile(url: firstURL).tags else { throw StepError("No readable file") }
 		guard let id = Int(first.first("DISCOGS_RELEASE_ID")) else { throw StepError("No Discogs release ID") }
 		let r = try await Discogs.release(id)
 		let (mTitle, mYear) = await Discogs.master(of: r)
@@ -158,8 +158,8 @@ enum Assign {
 				}
 			}
 			if let image, let first = urls.first, ImageSize.of(image) != nil {
-				var f = try FlacFile(url: first)
-				if f.pictures.isEmpty { for u in urls { var g = try FlacFile(url: u); g.pictures.append(Picture(type: 3, mime: image.starts(with: [0x89, 0x50]) ? "image/png" : "image/jpeg", desc: "", width: UInt32(ImageSize.of(image)!.0), height: UInt32(ImageSize.of(image)!.1), data: image)); try g.save() } }
+				var f = try AudioFile(url: first)
+				if f.pictures.isEmpty { for u in urls { var g = try AudioFile(url: u); g.pictures.append(Picture(type: 3, mime: image.starts(with: [0x89, 0x50]) ? "image/png" : "image/jpeg", desc: "", width: UInt32(ImageSize.of(image)!.0), height: UInt32(ImageSize.of(image)!.1), data: image)); try g.save() } }
 				_ = f
 			}
 		}.value

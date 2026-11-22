@@ -15,7 +15,7 @@ enum Pipeline {
 	@discardableResult
 	static func stripID3v1(_ files: [URL], log: Log) throws -> Int {
 		var n = 0
-		for f in files where FlacFile.id3v1Trailer(f) > 0 {
+		for f in files where f.pathExtension.lowercased() == "flac" && FlacFile.id3v1Trailer(f) > 0 {
 			var flac = try FlacFile(url: f)
 			try flac.save()   // the rewrite does not copy the trailer
 			log("removed ID3v1 tag  \(f.lastPathComponent)"); n += 1
@@ -27,7 +27,7 @@ enum Pipeline {
 
 	static func update(_ files: [URL], _ change: (URL, inout Tags) -> Void) throws {
 		for f in files {
-			var flac = try FlacFile(url: f)
+			var flac = try AudioFile(url: f)
 			var t = flac.tags
 			change(f, &t)
 			flac.tags = t
@@ -204,7 +204,7 @@ enum Pipeline {
 
 	/// True when every file carries REPLAYGAIN_ALBUM_GAIN; track gain alone is not enough (ADR 0028).
 	static func hasAlbumGain(_ files: [URL]) -> Bool {
-		!files.isEmpty && files.allSatisfy { !((try? FlacFile(url: $0))?.tags.first("REPLAYGAIN_ALBUM_GAIN") ?? "").isEmpty }
+		!files.isEmpty && files.allSatisfy { !((try? AudioFile(url: $0))?.tags.first("REPLAYGAIN_ALBUM_GAIN") ?? "").isEmpty }
 	}
 
 	static func replayGain(files: [URL], log: Log) throws {
@@ -228,7 +228,7 @@ enum Pipeline {
 	static func resizeCovers(files: [URL], max: Int) throws -> Int {
 		var n = 0
 		for u in files {
-			var f = try FlacFile(url: u)
+			var f = try AudioFile(url: u)
 			var changed = false
 			for (i, p) in f.pictures.enumerated() where ["image/jpeg", "image/png"].contains(p.mime) && p.data.count >= 100 {
 				guard let (w, h) = ImageSize.of(p.data), Swift.max(w, h) > max, let (d, mime, nw, nh) = ImageSize.embeddable(p.data, max: max) else { continue }
@@ -245,7 +245,7 @@ enum Pipeline {
 	static func fingerprints(files: [URL], log: Log) throws {
 		for f in files {
 			try Task.checkCancellation()
-			if let t = try? FlacFile(url: f).tags, !t.first("ACOUSTID_FINGERPRINT", "ACOUSTID FINGERPRINT").isEmpty { continue }
+			if let t = try? AudioFile(url: f).tags, !t.first("ACOUSTID_FINGERPRINT", "ACOUSTID FINGERPRINT").isEmpty { continue }
 			let fp = try Chromaprint.fingerprint(url: f)
 			try update([f]) { _, t in t["ACOUSTID FINGERPRINT"] = nil; t["ACOUSTID_FINGERPRINT"] = [fp] }
 			log("fingerprint  \(f.lastPathComponent)")
@@ -258,7 +258,7 @@ enum Pipeline {
 		var stats = ["new": 0, "fixed": 0, "failed": 0, "none": 0]
 		for t in album.tracks {
 			try Task.checkCancellation()
-			let tags = (try? FlacFile(url: t.url).tags) ?? t.tags
+			let tags = (try? AudioFile(url: t.url).tags) ?? t.tags
 			let r = await Lrc.decide(tags: tags, length: t.info.duration, log: log, lookup: Lrc.lrclib)
 			switch r.action {
 			case "new", "fixed", "fix":
@@ -280,7 +280,7 @@ enum Pipeline {
 		var n = 0
 		let fm = FileManager.default
 		for t in album.tracks {
-			guard let new = Naming.blissName(((try? FlacFile(url: t.url).tags) ?? t.tags)) else { log("skip \(t.url.lastPathComponent): title, track or disc is empty"); continue }
+			guard let new = Naming.blissName(((try? AudioFile(url: t.url).tags) ?? t.tags), suffix: t.suffix) else { log("skip \(t.url.lastPathComponent): title, track or disc is empty"); continue }
 			if new == t.url.lastPathComponent { continue }
 			let dest = t.url.deletingLastPathComponent().appendingPathComponent(new)
 			if fm.fileExists(atPath: dest.path) && !Naming.sameName(dest.lastPathComponent, t.url.lastPathComponent) { log("skip \(t.url.lastPathComponent): \(new) already exists"); continue }

@@ -12,12 +12,12 @@ enum LibScanner {
 		return (Int64(st.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(st.st_mtimespec.tv_nsec), Int64(st.st_size))
 	}
 
-	static func isMusic(_ name: String) -> Bool { name.lowercased().hasSuffix(".flac") && !name.hasPrefix("._") }
+	static func isMusic(_ name: String) -> Bool { AudioFile.isAudio(name) }
 
 	/// The indexed tags (first values, upper-case keys), plus _COVER "WxH"; an error message if unreadable.
 	static func readTags(_ url: URL) -> ([String: String], String) {
 		do {
-			let r = try FlacFile.quickRead(url)
+			let r = try AudioFile.quickRead(url)
 			var out: [String: String] = [:]
 			for k in LibTemplate.indexed { if let v = r.tags[k]?.first, !v.isEmpty { out[k] = v } }
 			if let c = r.cover { out["_COVER"] = "\(c.0)x\(c.1)" }

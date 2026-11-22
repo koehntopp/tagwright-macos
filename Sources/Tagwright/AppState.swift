@@ -405,7 +405,7 @@ final class AppState: ObservableObject {
 			do {
 				try await Task.detached {
 					for u in urls {
-						var f = try FlacFile(url: u)
+						var f = try AudioFile(url: u)
 						if type == .front { f.pictures.removeAll { $0.type == 3 } }
 						else if let r = replacing { f.pictures.removeAll { $0.type == type.rawValue && $0.data == r } }
 						if type != .front, f.pictures.contains(where: { $0.type == type.rawValue && $0.data == d }) { continue }
@@ -424,7 +424,7 @@ final class AppState: ObservableObject {
 		let urls = album.tracks.map(\.url), dir = album.url
 		Task {
 			try? await Task.detached {
-				for u in urls { var f = try FlacFile(url: u); f.pictures.removeAll { $0.type == type.rawValue && $0.data == data }; try f.save() }
+				for u in urls { var f = try AudioFile(url: u); f.pictures.removeAll { $0.type == type.rawValue && $0.data == data }; try f.save() }
 				if type == .front, let c = Scanner.folderImage(dir) { try? FileManager.default.removeItem(at: c) }
 			}.value
 			refresh(album)

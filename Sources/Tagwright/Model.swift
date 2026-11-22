@@ -13,17 +13,18 @@ enum Naming {
 		return s.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
 	}
 
-	/// <disc>_<track>_<title>.flac, nil while TITLE, TRACKNUMBER or DISCNUMBER is empty.
-	static func blissName(_ t: Tags) -> String? {
+	/// <disc>_<track>_<title><suffix>, nil while TITLE, TRACKNUMBER or DISCNUMBER is empty. A file keeps its own
+	/// extension, lower case (ADR 0059).
+	static func blissName(_ t: Tags, suffix: String = ".flac") -> String? {
 		let title = t.first("TITLE"), no = t.first("TRACKNUMBER"), disc = t.first("DISCNUMBER")
 		guard !title.isEmpty, !no.isEmpty, !disc.isEmpty else { return nil }
 		func pad(_ s: String) -> String { let p = String(s.split(separator: "/").first ?? ""); return String(repeating: "0", count: max(0, 2 - p.count)) + p }
 		let head = "\(pad(disc))_\(pad(no))_"
-		let room = nameMax - head.utf8.count - 5
+		let room = nameMax - head.utf8.count - suffix.utf8.count
 		var body = clean(title)
 		while body.utf8.count > room { body.removeLast() }
 		body = body.trimmingCharacters(in: CharacterSet(charactersIn: "_ ."))
-		return "\(head)\(body).flac"
+		return "\(head)\(body)\(suffix)"
 	}
 
 	/// <album artist>/<album [version]>, nil while ALBUMARTIST or ALBUM is empty.
@@ -106,9 +107,12 @@ struct Track: Identifiable {
 	}
 	var channelsLabel: String { info.channels == 1 ? "Mono" : info.channels == 2 ? "Stereo" : "\(info.channels)ch" }
 	var formatHelp: String { formatLabel.contains("/") ? "Sample rate in kHz / bit depth" : "Sample rate in kHz" }
+	var suffix: String { "." + (url.pathExtension.isEmpty ? "flac" : url.pathExtension.lowercased()) }
+	/// app.py rate_bits: `44.1/16`, or the rate alone when the format has no bit depth (MP3).
 	var formatLabel: String {
 		let r = Double(info.sampleRate) / 1000
-		return "\(r == r.rounded() ? String(Int(r)) : String(format: "%.1f", r))/\(info.bits == 0 ? 16 : info.bits)"
+		let khz = r == r.rounded() ? String(Int(r)) : String(format: "%.1f", r)
+		return info.bits == 0 ? khz : "\(khz)/\(info.bits)"
 	}
 }
 
@@ -178,7 +182,7 @@ struct Album: Identifiable {
 		case .fingerprints: return tracks.filter { $0.fingerprint.isEmpty }
 		case .tags: return tracks.filter { !tagsComplete($0) }
 		case .lyrics: return tracks.filter { $0.lyricsKind == .none }
-		case .filenames: return tracks.filter { t in guard let n = Naming.blissName(t.tags) else { return true }; return !Naming.sameName(n, t.url.lastPathComponent) }
+		case .filenames: return tracks.filter { t in guard let n = Naming.blissName(t.tags, suffix: t.suffix) else { return true }; return !Naming.sameName(n, t.url.lastPathComponent) }
 		}
 	}
 
@@ -338,7 +342,7 @@ enum Scanner {
 			if isDir {
 				if recursive { out += flacs(in: u, recursive: true) }
 				else if discsOnly && isDisc(u.lastPathComponent) { out += flacs(in: u, recursive: true) }   // all audio below a disc folder (layout.py)
-			} else if !discsOnly, u.pathExtension.lowercased() == "flac" { out.append(u) }   // discsOnly: only what is in disc folders
+			} else if !discsOnly, AudioFile.isAudio(u.lastPathComponent) { out.append(u) }   // discsOnly: only what is in disc folders
 		}
 		return out
 	}
@@ -372,7 +376,7 @@ enum Scanner {
 		var pic: Picture?
 		var art: [UInt32: [Cover]] = [:]
 		for f in files {
-			guard let flac = try? FlacFile(url: f) else { continue }
+			guard let flac = try? AudioFile(url: f) else { continue }
 			tracks.append(Track(url: f, tags: flac.tags, info: flac.info))
 			if pic == nil { pic = flac.pictures.first(where: { $0.type == 3 }) ?? flac.pictures.first }
 			for p in flac.pictures where ArtType(rawValue: p.type) != nil {

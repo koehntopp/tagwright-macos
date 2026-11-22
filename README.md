@@ -12,6 +12,7 @@ Build: `./build-app.sh` -> `build/Tagwright.app`. Tests: `DEVELOPER_DIR=/Applica
 | 0011 / 0091 move, cover recreated | `Pipeline.move` |
 | 0031 / 0038 / 0085 top bar, Staging/Library, list view | `TagwrightApp.swift`, `Board.swift` |
 | 0014 / 0053 tag editor, Discogs assignment | `Sheets.swift`, `Discogs.swift` |
+| 0058 / 0059 MP3 (ID3v2.4) through one seam | `Mp3.swift` (`Mp3File`, `AudioFile`) |
 | 0007 secrets | Discogs token in the Keychain |
 | 0023 / 0083 MusicBrainz search and assignment | `Discogs.swift` (`MusicBrainz`), `Sheets.swift` |
 | 0015 / 0021 lyrics editor, LRC repair | `Lrc.swift`, `Sheets.swift` |
