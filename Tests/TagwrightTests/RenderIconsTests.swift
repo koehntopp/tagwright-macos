@@ -8,10 +8,9 @@ final class RenderIconsTests: XCTestCase {
 		guard let out = ProcessInfo.processInfo.environment["TW_RENDER"] else { throw XCTSkip("set TW_RENDER") }
 		func row(_ label: String, playing: Bool, paused: Bool) -> some View {
 			HStack(spacing: 8) {
-				Button {} label: { if playing && !paused { Image(systemName: "pause.fill") } else { Image(systemName: "play.fill").offset(x: 1) } }
-					.buttonStyle(IconButton(size: 28, color: Color.ink, active: playing && !paused))
+				Button {} label: { LucideIcon(icon: playing && !paused ? .pause : .play, size: 14) }.buttonStyle(IconButton())
 				Text(label).font(.system(size: 13)); Spacer()
-				Button {} label: { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, color: Color.muted))
+				Button {} label: { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton())
 			}
 			.padding(.vertical, 4).padding(.leading, 8)
 			.background(playing ? Color(hex: 0xfef9c3) : .clear)

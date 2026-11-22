@@ -53,9 +53,9 @@ struct Inspector: View {
 	func editable(_ s: String, size: CGFloat, weight: Font.Weight, color: Color) -> some View {
 		HStack(spacing: 6) {
 			Text(s).font(.system(size: size, weight: weight)).foregroundStyle(color).textSelection(.enabled)
-			Button { app.sheet = .tagEditor } label: { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, hover: Color.board)).help("Edit in the Tag Editor")
-			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string); app.notify("Copied") } label: { Image(systemName: "doc.on.doc").font(.system(size: size * 0.55)) }
-				.buttonStyle(.plain).foregroundStyle(Color.muted.opacity(0.7))
+			Button { app.sheet = .tagEditor } label: { LucideIcon(icon: .pencil, size: max(13, size * 0.6)) }.buttonStyle(IconButton(hover: Color.board)).help("Edit in the Tag Editor")
+			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string); app.notify("Copied") } label: { LucideIcon(icon: .copy, size: max(12, size * 0.55)) }
+				.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Copy")
 		}
 	}
 
@@ -71,15 +71,15 @@ struct Inspector: View {
 				.padding(.horizontal, 10).padding(.vertical, 4)
 				.background(id.isEmpty ? Color(hex: 0xffe4e6) : Color.board, in: Capsule())
 			}.buttonStyle(.plain)
-			Button(action: search) { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, hover: Color.board)).help("Search")
+			Button(action: search) { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton(hover: Color.board)).help("Search")
 		}
 	}
 
 	func copyable(_ s: String, size: CGFloat, weight: Font.Weight, color: Color) -> some View {
 		HStack(spacing: 5) {
 			Text(s).font(.system(size: size, weight: weight)).foregroundStyle(color).textSelection(.enabled)
-			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string); app.notify("Copied") } label: { Image(systemName: "doc.on.doc").font(.system(size: 10)) }
-				.buttonStyle(.plain).foregroundStyle(Color.muted.opacity(0.6))
+			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string); app.notify("Copied") } label: { LucideIcon(icon: .copy, size: 12) }
+				.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Copy")
 		}
 	}
 
@@ -229,10 +229,9 @@ struct Inspector: View {
 			ForEach(a.tracks) { t in
 				HStack(spacing: 8) {
 					Button { app.play(t) } label: {
-						// play.fill sits left of its frame's centre; nudged so it looks centred in the circle
-						if app.playing == t.id && !app.paused { Image(systemName: "pause.fill") } else { Image(systemName: "play.fill").offset(x: 1) }
+						LucideIcon(icon: app.playing == t.id && !app.paused ? .pause : .play, size: 14)
 					}
-						.buttonStyle(IconButton(size: 28, color: Color.ink, active: app.playing == t.id && !app.paused)).help(app.playing == t.id && !app.paused ? "Pause" : "Play")
+						.buttonStyle(IconButton()).help(app.playing == t.id && !app.paused ? "Pause" : "Play")
 					Text(t.number.isEmpty ? "" : String(format: "%02d", Int(t.number) ?? 0)).font(.system(size: 12)).foregroundStyle(Color.muted).frame(width: 22, alignment: .leading)
 					Text(t.title).font(.system(size: 13)).lineLimit(1)
 					Spacer(minLength: 4)
@@ -242,7 +241,7 @@ struct Inspector: View {
 					Pill(text: t.formatLabel, bg: .white)
 					if !t.dr.isEmpty { DRBadge(value: t.dr) } else { Pill(text: "---", fg: Color.muted, bg: Color(hex: 0xe5e7eb)) }
 					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { lyricBadge(t) }.buttonStyle(.plain)
-					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, color: Color.muted)).help("Edit lyrics")
+					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton()).help("Edit lyrics")
 				}
 				.padding(.vertical, 4).padding(.leading, 8)   // room for the playing marker left of the button
 				.background(app.playing == t.id ? Color(hex: 0xfef9c3) : .clear)

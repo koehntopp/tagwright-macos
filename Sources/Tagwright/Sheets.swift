@@ -258,7 +258,7 @@ struct AssignPane: View {
 				if on {
 					TextField("", text: Binding(get: { st.title[i] }, set: { st.title[i] = $0 })).textFieldStyle(.plain).font(.system(size: 12)).padding(.horizontal, 6).padding(.vertical, 4).background(Color(hex: 0xdbeafe), in: RoundedRectangle(cornerRadius: 5))
 					HStack(spacing: 4) { Text("Was: \(t.title)").font(.system(size: 11)).foregroundStyle(Color.muted).lineLimit(1)
-						Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t.title, forType: .string) } label: { Image(systemName: "doc.on.doc").font(.system(size: 9)) }.buttonStyle(.plain) }
+						Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t.title, forType: .string) } label: { LucideIcon(icon: .copy, size: 11) }.buttonStyle(IconButton(color: Color.muted)) }
 				} else { Text(t.title).font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(1) }
 				Text("\(t.url.lastPathComponent) · \(Inspector.mmss(t.info.duration))").font(.system(size: 10)).foregroundStyle(Color.muted.opacity(0.8)).lineLimit(1)
 			}.frame(maxWidth: .infinity, alignment: .leading)
@@ -395,7 +395,7 @@ struct DiscogsSheet: View {
 
 	func chip(_ k: String, _ v: String) -> some View {
 		HStack(spacing: 4) { Text("\(k): \(v)")
-			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(v, forType: .string) } label: { Image(systemName: "doc.on.doc").font(.system(size: 10)) }.buttonStyle(.plain) }
+			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(v, forType: .string) } label: { LucideIcon(icon: .copy, size: 12) }.buttonStyle(IconButton(color: Color.muted)) }
 	}
 
 	func search() {
@@ -534,7 +534,7 @@ struct MusicBrainzSheet: View {
 	func sort(_ k: String) { if sortKey == k { asc.toggle() } else { sortKey = k; asc = true } }
 	func chip(_ k: String, _ v: String) -> some View {
 		HStack(spacing: 4) { Text("\(k): \(v)")
-			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(v, forType: .string) } label: { Image(systemName: "doc.on.doc").font(.system(size: 10)) }.buttonStyle(.plain) }
+			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(v, forType: .string) } label: { LucideIcon(icon: .copy, size: 12) }.buttonStyle(IconButton(color: Color.muted)) }
 	}
 
 	func search() {
@@ -770,7 +770,7 @@ struct TagEditorSheet: View {
 			HStack(spacing: 8) {
 				Text(id.isEmpty ? "missing" : id).font(.system(size: 12, weight: .medium, design: id.isEmpty ? .default : .monospaced)).foregroundStyle(id.isEmpty ? Color(hex: 0xbe123c) : Color.ink)
 					.padding(.horizontal, 10).padding(.vertical, 4).background(id.isEmpty ? Color(hex: 0xffe4e6) : Color.board, in: Capsule())
-				Button(action: pen) { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, hover: Color.board)).help("Search")
+				Button(action: pen) { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton(hover: Color.board)).help("Search")
 			}
 		}.frame(maxWidth: .infinity, alignment: .topLeading)
 	}
@@ -792,7 +792,7 @@ struct TagEditorSheet: View {
 						Pill(text: t.formatLabel, bg: .white).frame(width: 70)
 						Pill(text: t.channelsLabel, fg: Color.ink.opacity(0.7), bg: Color(hex: 0xe5e7eb)).frame(width: 62)
 						Group { switch t.lyricsKind { case .lrc: Pill(text: "LRC", fg: .white, bg: .ok); case .txt: Pill(text: "TXT", fg: .black, bg: .warn); case .instr: Pill(text: "INS", fg: .white, bg: .info); case .none: Pill(text: "---", fg: .white, bg: .bad) } }.frame(width: 44)
-						Button { lyricsFor = t } label: { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, color: Color.muted, hover: Color.board)).help("Edit lyrics")
+						Button { lyricsFor = t } label: { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton(hover: Color.board)).help("Edit lyrics")
 					}
 				}
 			}.onMove { from, to in order.move(fromOffsets: from, toOffset: to); renumber() }
