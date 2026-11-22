@@ -52,6 +52,7 @@ struct RootView: View {
 			.animation(.easeOut(duration: 0.2), value: app.toast)
 		}
 		.background(Button("") { searchFocus = true }.keyboardShortcut("k").opacity(0))
+		.onChange(of: app.sheet) { _, s in if s != nil { searchFocus = false } }
 	}
 }
 

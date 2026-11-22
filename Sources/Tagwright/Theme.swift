@@ -80,6 +80,23 @@ struct ChannelBadge: View {
 	}
 }
 
+extension NSImage {
+	/// A copy drawn at `pt` points (menu items show an NSImage at its own size).
+	func sized(_ pt: CGFloat) -> NSImage {
+		let i = NSImage(size: NSSize(width: pt, height: pt), flipped: false) { r in self.draw(in: r); return true }
+		i.isTemplate = isTemplate
+		return i
+	}
+	/// The same on a dark rounded tile (`bg-slate-800 p-px`), for the white musichoarders logo.
+	func onTile(_ pt: CGFloat) -> NSImage {
+		NSImage(size: NSSize(width: pt, height: pt), flipped: false) { r in
+			NSColor(red: 0x1e / 255.0, green: 0x29 / 255.0, blue: 0x3b / 255.0, alpha: 1).setFill()
+			NSBezierPath(roundedRect: r, xRadius: 2, yRadius: 2).fill()
+			self.draw(in: r.insetBy(dx: 1, dy: 1)); return true
+		}
+	}
+}
+
 struct LucideIcon: View {
 	var icon: Lucide
 	var size: CGFloat = 14
@@ -280,7 +297,7 @@ struct Shell<Content: View, Header: View>: View {
 			HStack(spacing: 8) {
 				Spacer()
 				Button(cancelLabel, action: onClose).buttonStyle(WebButton(kind: .outline)).keyboardShortcut(.cancelAction)
-				if let save, let saveLabel { Button(saveLabel, action: save).buttonStyle(WebButton(kind: danger ? .danger : .primary)).disabled(saveDisabled).keyboardShortcut(.defaultAction) }
+				if let save, let saveLabel { Button(saveLabel, action: save).buttonStyle(WebButton(kind: danger ? .danger : .primary)).disabled(saveDisabled) }
 			}.padding(.top, 16)
 		}
 		.padding(24)

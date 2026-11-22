@@ -265,7 +265,7 @@ struct LyricsSheet: View {
 	func hit(_ i: Int, _ x: Lrc.Hit) -> some View {
 		VStack(alignment: .leading, spacing: 4) {
 			HStack(spacing: 8) {
-				Pill(text: Inspector.mmss(Double(x.duration)), fg: .slate(900), bg: .slate(100), width: 40)
+				Pill(text: Inspector.mmss(Double(x.duration)), fg: .slate(900), bg: .slate(100)).frame(minWidth: 40)
 				VStack(alignment: .leading, spacing: 0) {
 					Text("\(x.artist) - \(x.title)").fontWeight(.medium).lineLimit(1)
 					Text(x.album).foregroundStyle(Color.slate(500)).lineLimit(1)
@@ -672,8 +672,8 @@ struct SubtitleDivider: View {
 		.overlay(alignment: .leading) { if inside { Rectangle().fill(grey ? Color.slate(300) : .sky(300)).frame(width: 4) } }
 		.opacity(disabled ? 0.6 : 1)
 		.padding(.leading, inside ? 16 : 0).padding(.top, 8)
-		.onAppear { if editing { text = subtitle; focus = true } }
-		.onChange(of: editing) { _, e in if e { text = subtitle; focus = true } }
+		.onAppear { if editing { text = subtitle; DispatchQueue.main.async { focus = true } } }
+		.onChange(of: editing) { _, e in if e { text = subtitle; DispatchQueue.main.async { focus = true } } }
 	}
 }
 
@@ -1005,7 +1005,7 @@ struct DiscogsSheet: View {
 			}.font(.system(size: 14)).padding(.bottom, 12)
 			AssignTable(album: album, a: $a, numbers: titles)
 			titlesHint(titles)
-			Text("Always written from Discogs: DISCOGS_RELEASE_ID, ALBUMARTIST, ALBUM, CATALOGNUMBER, ALBUM_FORMAT (each unless its _OVERRIDE tag is set), COMPOSER, PRODUCER, ENGINEER, the other credit tags and the DISCOGS_* tags.\nWritten only where a file has none: a cover, and ARTIST while “Import song titles” is off.")
+			Text(verbatim: "Always written from Discogs: DISCOGS_RELEASE_ID, ALBUMARTIST, ALBUM, CATALOGNUMBER, ALBUM_FORMAT (each unless its _OVERRIDE tag is set), COMPOSER, PRODUCER, ENGINEER, the other credit tags and the DISCOGS_* tags.\nWritten only where a file has none: a cover, and ARTIST while “Import song titles” is off.")
 				.font(.system(size: 12)).foregroundStyle(Color.slate(500)).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
 			let rest = a.tracks.filter { used[$0.id] == nil }.map(\.title)
 			Text("Not in this album: \(rest.isEmpty ? "none" : rest.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(Color.slate(500)).padding(.top, 4)
@@ -1138,7 +1138,7 @@ struct MusicBrainzSheet: View {
 			}.font(.system(size: 14)).padding(.bottom, 12)
 			AssignTable(album: album, a: $a, numbers: titles)
 			titlesHint(titles)
-			Text("Apply writes MUSICBRAINZ_ALBUMID, the release group and album artist IDs and links to every file, and MUSICBRAINZ_ARTISTID and its link to each assigned file. With “Import song titles” on, assigned files also get the release's TITLE, ARTIST, TRACKNUMBER, DISCNUMBER and DISCSUBTITLE and are renamed. BARCODE, ASIN, MUSICBRAINZ_ALBUM_RELEASECOUNTRY, MUSICBRAINZ_ALBUMSTATUS, MUSICBRAINZ_ALBUMTYPE and MUSICBRAINZ_ALBUM_DISAMBIGUATION are filled only where the file has none yet.")
+			Text(verbatim: "Apply writes MUSICBRAINZ_ALBUMID, the release group and album artist IDs and links to every file, and MUSICBRAINZ_ARTISTID and its link to each assigned file. With “Import song titles” on, assigned files also get the release's TITLE, ARTIST, TRACKNUMBER, DISCNUMBER and DISCSUBTITLE and are renamed. BARCODE, ASIN, MUSICBRAINZ_ALBUM_RELEASECOUNTRY, MUSICBRAINZ_ALBUMSTATUS, MUSICBRAINZ_ALBUMTYPE and MUSICBRAINZ_ALBUM_DISAMBIGUATION are filled only where the file has none yet.")
 				.font(.system(size: 12)).foregroundStyle(Color.slate(500)).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
 		}
 	}

@@ -398,12 +398,12 @@ struct ArtworkField: View {
 				if type == .front {
 					Spacer(minLength: 0)
 					Menu {
-						Button { app.chooseArtwork(album, type: .front) } label: { Label { Text("Upload image") } icon: { Image(nsImage: Lucide.upload.image) } }
-						Button { app.pasteCover(album) } label: { Label { Text("Paste image") } icon: { Image(nsImage: Lucide.clipboardPaste.image) } }
-						Button { open("https://covers.musichoarders.xyz/?" + Self.query(["artist": album.artist, "album": album.title])) } label: { Label { Text("Search musichoarders") } icon: { Image(nsImage: Asset.musichoarders.image) } }
-						Button { open("https://albumartexchange.com/covers?" + Self.query(["q": [album.artist, album.title].filter { !$0.isEmpty }.joined(separator: " "), "fltr": "ALL", "sort": "SCORE", "status": "", "size": "any"])) } label: { Label { Text("Search albumartexchange") } icon: { Image(nsImage: Asset.albumartexchange.image) } }
+						Button { app.chooseArtwork(album, type: .front) } label: { Label { Text("Upload image") } icon: { Image(nsImage: Lucide.upload.image.sized(16)) } }
+						Button { app.pasteCover(album) } label: { Label { Text("Paste image") } icon: { Image(nsImage: Lucide.clipboardPaste.image.sized(16)) } }
+						Button { open("https://covers.musichoarders.xyz/?" + Self.query(["artist": album.artist, "album": album.title])) } label: { Label { Text("Search musichoarders") } icon: { Image(nsImage: Asset.musichoarders.image.onTile(16)) } }
+						Button { open("https://albumartexchange.com/covers?" + Self.query(["q": [album.artist, album.title].filter { !$0.isEmpty }.joined(separator: " "), "fltr": "ALL", "sort": "SCORE", "status": "", "size": "any"])) } label: { Label { Text("Search albumartexchange") } icon: { Image(nsImage: Asset.albumartexchange.image.sized(16)) } }
 						Divider()
-						Button(role: .destructive) { app.sheet = .coverDelete } label: { Label { Text("Remove cover") } icon: { Image(nsImage: Lucide.trash2.image) } }
+						Button(role: .destructive) { app.sheet = .coverDelete } label: { Label { Text("Remove cover") } icon: { Image(nsImage: Lucide.trash2.image.sized(16)) } }
 					} label: { LucideIcon(icon: .ellipsis, size: 14).foregroundStyle(Color.slate(500)) }
 						.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Cover options")
 				}
