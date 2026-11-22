@@ -7,7 +7,7 @@ swift build -c release
 APP=build/Tagwright.app
 rm -rf $APP && mkdir -p $APP/Contents/MacOS $APP/Contents/Resources
 cp .build/release/Tagwright $APP/Contents/MacOS/
-cp Resources/AppIcon.icns $APP/Contents/Resources/   # from the web app's static/icon.svg (scripts/make-icon.swift)
+cp Resources/AppIcon.icns Resources/unidecode.bin $APP/Contents/Resources/   # from the web app's static/icon.svg (scripts/make-icon.swift)
 cat > $APP/Contents/Info.plist <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

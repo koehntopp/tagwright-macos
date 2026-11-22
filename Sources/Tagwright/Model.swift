@@ -6,12 +6,7 @@ enum Naming {
 	static let nameMax = 255
 
 	/// python-slugify(lowercase=False, separator="_") then sanitize: the rule of bliss.clean().
-	static func clean(_ text: String) -> String {
-		var s = text.applyingTransform(StringTransform("Any-Latin; Latin-ASCII"), reverse: false) ?? text
-		s = s.replacingOccurrences(of: "'", with: "")
-		s = s.replacingOccurrences(of: "[^A-Za-z0-9]+", with: "_", options: .regularExpression)
-		return s.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-	}
+	static func clean(_ text: String) -> String { Slug.clean(text) }
 
 	/// <disc>_<track>_<title><suffix>, nil while TITLE, TRACKNUMBER or DISCNUMBER is empty. A file keeps its own
 	/// extension, lower case (ADR 0059).
@@ -98,13 +93,14 @@ struct Track: Identifiable {
 	var dr: String { tags.first("DYNAMIC_RANGE") }
 	var fingerprint: String { tags.first("ACOUSTID_FINGERPRINT", "ACOUSTID FINGERPRINT") }
 
+	/// app.py lyric_kind: only LYRICS counts; the instrumental marker before LRC (its block holds [00:00.00]).
 	var lyricsKind: LyricsKind {
-		let l = tags.first("LYRICS", "UNSYNCEDLYRICS")
-		if l.isEmpty { return tags.first("LYRICS_LANGUAGE").lowercased() == "zxx" ? .instr : .none }
-		if l.lowercased().contains("[instrumental:true]") || l.range(of: #"\[\d\d:\d\d\.\d\d\][\[(]\s*instrumental\s*[\])]"#, options: [.regularExpression, .caseInsensitive]) != nil { return .instr }
-		if l.range(of: #"\[\d\d:\d\d\.\d\d\]"#, options: .regularExpression) != nil { return .lrc }
-		return .txt
+		let l = tags.first("LYRICS")
+		if l.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return tags.first("LYRICS_LANGUAGE") == "zxx" ? .instr : .none }
+		if l.range(of: #"\[instrumental:true\]|\[\d{2}:\d{2}\.\d{2}\]\s*(?:\[instrumental\]|\(instrumental\))"#, options: [.regularExpression, .caseInsensitive]) != nil { return .instr }
+		return l.range(of: #"\[\d{2}:\d{2}\.\d{2}\]"#, options: .regularExpression) != nil ? .lrc : .txt
 	}
+
 	var channelsLabel: String { info.channels == 1 ? "Mono" : info.channels == 2 ? "Stereo" : "\(info.channels)ch" }
 	var formatHelp: String { formatLabel.contains("/") ? "Sample rate in kHz / bit depth" : "Sample rate in kHz" }
 	var suffix: String { "." + (url.pathExtension.isEmpty ? "flac" : url.pathExtension.lowercased()) }

@@ -4,7 +4,7 @@ import XCTest
 final class NamingTests: XCTestCase {
 	func testClean() {
 		XCTAssertEqual(Naming.clean("Café del Mar: Vol. 1"), "Cafe_del_Mar_Vol_1")
-		XCTAssertEqual(Naming.clean("Don't Stop"), "Dont_Stop")
+		XCTAssertEqual(Naming.clean("Don't Stop"), "Don_t_Stop")   // python-slugify turns quotes into separators
 		XCTAssertEqual(Naming.clean("Straße"), "Strasse")
 	}
 	func testBlissName() {

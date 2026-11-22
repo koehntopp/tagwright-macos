@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Sync layer 2: what changed in the web app (../tagwright) since the commit in SYNC, and where it goes here.
+
+  scripts/sync-check            list the changed web files with the macOS files to update, new ADRs and CHANGELOG lines
+  scripts/sync-check --count    print only the number of changed files that matter (hooks, tests)
+  scripts/sync-check --diff P   show the web diff of one path since SYNC
+  scripts/sync-check --update   after porting: set SYNC to the web app's HEAD (commit SYNC with the port)
+Always exits 0 unless the web repository is missing (exit 2).
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parents[1]
+WEB = HERE.parent / 'tagwright'
+
+# web path prefix -> macOS files to read and update (first match wins)
+MAP = [
+	('pipeline/naming.py', 'Model.swift (Naming), Slug.swift'),
+	('pipeline/fixtags.py', 'Assign.swift'),
+	('pipeline/discogs.py', 'Discogs.swift'),
+	('pipeline/lyrics.py', 'Lrc.swift, Pipeline.swift (lyrics)'),
+	('pipeline/lrc_format.py', 'Lrc.swift'),
+	('pipeline/lrclib.py', 'Lrc.swift (LrcPacer, get, search)'),
+	('pipeline/replaygain.py', 'Pipeline.swift (ReplayGain)'),
+	('pipeline/dr.py', 'Pipeline.swift (dynamic range)'),
+	('pipeline/fingerprint.py', 'Chromaprint.swift, Pipeline.swift'),
+	('pipeline/mp3.py', 'Mp3.swift'),
+	('pipeline/audio.py', 'Mp3.swift (AudioFile), Flac.swift'),
+	('pipeline/tagio.py', 'Flac.swift, Mp3.swift'),
+	('pipeline/artwork.py', 'Artwork.swift, AppState.swift (artwork)'),
+	('pipeline/covers.py', 'Pipeline.swift (resizeCovers), ImageUtil.swift'),
+	('pipeline/languages.py', 'Discogs.swift (MusicBrainz.trackLanguages), Assign.swift'),
+	('pipeline/musicbrainz.py', 'Discogs.swift (MusicBrainz)'),
+	('pipeline/layout.py', 'Model.swift (Scanner)'),
+	('pipeline/logconfig.py', 'AppLog.swift'),
+	('pipeline/', 'Pipeline.swift'),
+	('library/template.py', 'LibTemplate.swift'),
+	('library/planner.py', 'LibPlanner.swift'),
+	('library/executor.py', 'LibExecutor.swift'),
+	('library/scanner.py', 'LibScanner.swift'),
+	('library/index.py', 'LibIndex.swift'),
+	('library/summaries.py', 'Summaries.swift'),
+	('library/', 'Library.swift'),
+	('app.py', 'AppState.swift, Model.swift (issues, steps), Sheets.swift (dialog logic)'),
+	('ui/components/inspector.tsx', 'Inspector.swift'),
+	('ui/components/album-list.tsx', 'Board.swift (AlbumTable)'),
+	('ui/components/library.tsx', 'LibraryViews.swift'),
+	('ui/components/', 'Sheets.swift'),
+	('ui/app/page.tsx', 'TagwrightApp.swift, Board.swift'),
+	('ui/lib/', 'Theme.swift, Model.swift'),
+	('static/ui/', None),  # build output of ui/
+	('static/', 'Assets.swift (node scripts/gen-assets.mjs), Resources/AppIcon.icns (scripts/make-icon.swift)'),
+	('docs/adr/', 'GAPS.md; whatever the ADR covers'),
+	('CHANGELOG.md', 'read the new entries'),
+]
+IGNORE = ('tests/', '.github/', 'Dockerfile', 'compose', 'renovate', 'uv.lock', 'pyproject.toml', 'ui/package', 'ui/node_modules', 'scripts/', '.dockerignore', '.gitignore', 'deploy', 'LICENSE', 'NOTICE', 'README.md', 'AGENTS.md', 'CLAUDE.md', 'docs/screenshots/')
+
+
+def git(*a: str) -> str:
+	return subprocess.run(['git', '-C', str(WEB), *a], capture_output=True, text=True, check=True).stdout
+
+
+def target(path: str) -> str | None:
+	for prefix, where in MAP:
+		if path.startswith(prefix):
+			return where
+	return 'unmapped: decide where it goes and add it to MAP'
+
+
+def main() -> int:
+	if not (WEB / '.git').exists():
+		print(f'sync-check: no web repository at {WEB}', file=sys.stderr)
+		return 2
+	synced = (HERE / 'SYNC').read_text().strip()
+	head = git('rev-parse', 'HEAD').strip()
+	if '--update' in sys.argv:
+		(HERE / 'SYNC').write_text(head + '\n')
+		print(f'SYNC set to {head[:7]}: commit it with the port')
+		return 0
+	if '--diff' in sys.argv:
+		print(git('diff', synced, head, '--', sys.argv[sys.argv.index('--diff') + 1]))
+		return 0
+	stat = [line.split('\t') for line in git('diff', '--numstat', synced, head).splitlines()]
+	files = [(p, a, d) for a, d, p in stat if not p.startswith(IGNORE) and target(p) is not None]
+	if '--count' in sys.argv:
+		print(len(files))
+		return 0
+	if not files:
+		print(f'In sync with the web app at {head[:7]}.')
+		return 0
+	print(f'The web app moved from {synced[:7]} to {head[:7]}. Not yet in the macOS port:\n')
+	print(git('log', '--format=  %h %s', f'{synced}..{head}'))
+	for p, a, d in files:
+		print(f'  {p}  (+{a} -{d})\n      -> {target(p)}')
+	adrs = [p for p, _, _ in files if p.startswith('docs/adr/0')]
+	if adrs:
+		print('\nNew or changed ADRs (read them first):\n' + '\n'.join(f'  {p}' for p in adrs))
+	log = git('diff', synced, head, '--', 'CHANGELOG.md')
+	added = [line[1:] for line in log.splitlines() if line.startswith('+') and not line.startswith('+++') and line[1:].strip()]
+	if added:
+		print('\nCHANGELOG additions:\n' + '\n'.join(f'  {line}' for line in added))
+	print('\nPort them, run the tests (WebParityTests compares with the web code), then scripts/sync-check --update.')
+	return 0
+
+
+sys.exit(main())

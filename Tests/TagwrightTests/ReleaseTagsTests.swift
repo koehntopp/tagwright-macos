@@ -3,26 +3,6 @@ import XCTest
 
 /// The Discogs player and DISCOGS_* tags of a release equal the web app's release_tags() (scripts/web-release-tags.py
 /// runs that function, extracted from ../tagwright/app.py, on the same JSON).
-final class ReleaseTagsTests: XCTestCase {
-	let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-
-	func testMatchesWebReleaseTags() throws {
-		let py = dir.appendingPathComponent("../../../tagwright/.venv/bin/python").standardized.path
-		guard FileManager.default.isExecutableFile(atPath: py) else { throw XCTSkip("the web app's venv is not there") }
-		for id in ["9886890", "1524544"] {
-			let json = dir.appendingPathComponent("Fixtures/discogs/\(id).json")
-			let r = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: json)) as? [String: Any])
-			let p = Process(); p.executableURL = URL(fileURLWithPath: py)
-			p.arguments = [dir.appendingPathComponent("../../scripts/web-release-tags.py").standardized.path, json.path]
-			let pipe = Pipe(); p.standardOutput = pipe; try p.run(); p.waitUntilExit()
-			let web = try XCTUnwrap(JSONSerialization.jsonObject(with: pipe.fileHandleForReading.readDataToEndOfFile()) as? [String: [String: [String]]])
-			XCTAssertEqual(Discogs.discogsTags(r), web["discogs"], "DISCOGS_* of \(id)")
-			var player = Discogs.playerTags(r); player["COMPOSER"] = nil   // the web app keeps the writers apart from the player tags
-			XCTAssertEqual(player, web["player"], "player tags of \(id)")
-		}
-	}
-}
-
 /// ADR 0053/0080 re-assignment: nothing of the previous release stays behind.
 final class ReassignTests: XCTestCase {
 	func testReassignReplacesPreviousRelease() async throws {
