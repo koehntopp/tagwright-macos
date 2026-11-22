@@ -85,6 +85,7 @@ struct SettingsSheet: View {
 struct MoveSheet: View {
 	@EnvironmentObject var app: AppState
 	var album: Album
+	@State private var art: [UInt32: [Picture]]?   // the embedded pictures, read once
 	var body: some View {
 		let lib = URL(fileURLWithPath: app.libraryPath.isEmpty ? "/missing" : app.libraryPath)
 		let plan = Pipeline.movePlan(album: album, library: lib, extra: app.mbCheck[album.id]?.mismatches ?? [])
@@ -92,7 +93,7 @@ struct MoveSheet: View {
 		let rel = plan.folder.path.replacingOccurrences(of: lib.path + "/", with: "")
 		let exists = plan.moves.map { FileManager.default.fileExists(atPath: $0.to.path) }
 		let problems = (app.libraryPath.isEmpty ? ["Choose a library folder in Settings first."] : []) + plan.problems + zip(plan.moves, exists).filter(\.1).map { "\($0.0.to.path.replacingOccurrences(of: lib.path + "/", with: "")) already exists in the library; nothing is overwritten" }
-		let covers = album.cover?.embedded == true ? [album.cover!.data.starts(with: [0x89, 0x50]) ? "cover.png" : "cover.jpg"] : []
+		let covers = art.map { Artwork.plan($0, target: plan.folder) } ?? []
 		Shell(title: "Move to the library?", width: 640, err: app.dialogError, saveLabel: moving ? "Moving…" : "Move", saveDisabled: !problems.isEmpty || moving || plan.moves.isEmpty, danger: moving, save: { app.dialogError = nil; app.move(album) }, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 8) {
 				Text("“\(album.title)” moves \(plan.moves.count) track\(plan.moves.count == 1 ? "" : "s") into the library, each to its place from the layout in Settings.").font(.system(size: 14))
@@ -117,6 +118,7 @@ struct MoveSheet: View {
 			}
 		}
 		.onAppear { app.dialogError = nil }
+		.task { let urls = album.tracks.map(\.url); art = await Task.detached { Artwork.read(urls) }.value }
 	}
 	func k(_ s: String) -> some View { Text(s).font(.system(size: 12)).foregroundStyle(Color.slate(500)).frame(width: 88, alignment: .leading) }
 	func mono(_ s: String) -> some View { Text(s).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }

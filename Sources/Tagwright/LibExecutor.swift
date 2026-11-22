@@ -71,6 +71,12 @@ final class LibExecutor {
 			} catch { result.errors.append(.init(path: m.src, reason: error.localizedDescription)) }
 		}
 		for (d, pairs) in sources { moveSidecars(d, pairs) }
+		// ADR 0091: an album the watcher placed gets its cover files recreated from the embedded art (never replaced)
+		for album in Set(result.done.map { m -> String in let d = LibIndex.parent(m.new); return Scanner.isDisc(LibIndex.name(d)) && d.contains("/") ? LibIndex.parent(d) : d }) {
+			let dir = URL(fileURLWithPath: album.isEmpty ? root : root + "/" + album)
+			let files = Scanner.flacs(in: dir, recursive: false) + Scanner.flacs(in: dir, recursive: false, discsOnly: true)
+			result.sidecars += Artwork.export(Artwork.read(files), target: dir).count
+		}
 		for d in sources.keys.sorted(by: { $0.filter { $0 == "/" }.count > $1.filter { $0 == "/" }.count }) { prune(d) }
 		let albums = Set(result.done.map { LibIndex.parent($0.new) }).sorted()
 		result.actions = albums.map { a in "moved \(result.done.filter { LibIndex.parent($0.new) == a }.count) file(s) to \(a)" }
