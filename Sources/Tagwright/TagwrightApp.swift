@@ -25,6 +25,8 @@ struct TagwrightApp: App {
 				Button("Paste Cover") { if let a = app.selected { app.pasteCover(a) } }.keyboardShortcut("v", modifiers: [.command, .shift])
 				Button("Search Discogs…") { if app.selected != nil { app.sheet = .discogs } }.keyboardShortcut("d")
 				Button("Search MusicBrainz…") { if app.selected != nil { app.sheet = .musicbrainz } }.keyboardShortcut("m", modifiers: [.command, .shift])
+			}
+			CommandGroup(replacing: .appSettings) {   // the app menu, as macOS apps do
 				Button("Settings…") { app.sheet = .settings }.keyboardShortcut(",")
 			}
 		}
@@ -129,24 +131,28 @@ struct TopBar: View {
 	var searchFocus: FocusState<Bool>.Binding
 	var side: CGFloat
 	var wide: Bool
+	@State private var searchOver = false
 	var body: some View {
 		HStack(spacing: 8) {
 			Image(nsImage: Asset.logo.image).resizable().frame(width: 32, height: 32).padding(.trailing, 8)
 			HStack(spacing: 4) {
 				ForEach(Filter.allCases, id: \.self) { f in FilterButton(f: f) }
 			}.fixedSize()
+			Spacer(minLength: 8)
+			// ADR 0095: Rescan, the view pill, the folder switch and the search as one group
 			RoundIcon(icon: .refreshCw, help: "Rescan folder", spinning: app.scanning) { app.rescan(fresh: true); app.notify("Rescanned", kind: .success) }
 			HStack(spacing: 2) {
 				ViewToggle(icon: .layoutGrid, on: !app.listView, help: "Card view") { app.listView = false }
 				ViewToggle(icon: .list, on: app.listView, help: "List view") { app.listView = true }
-			}.padding(2)
-			Spacer(minLength: 8)
+			}
+			.padding(2).frame(height: 36).background(.white, in: Capsule()).overlay(Capsule().stroke(Color.slate(300)))
 			SourceSwitch()
 			HStack(spacing: 8) {
 				LucideIcon(icon: .search, size: 16).foregroundStyle(Color.slate(400))
 				TextField("Search", text: $app.search).textFieldStyle(.plain).font(.system(size: 14)).focused(searchFocus)
-				if wide { Text("⌘K").font(.system(size: 12)).foregroundStyle(Color.slate(500)).padding(.horizontal, 6).background(Color.slate(100), in: RoundedRectangle(cornerRadius: 4)) }
+				if !app.search.isEmpty && (searchOver || searchFocus.wrappedValue) { ClearX { app.search = ""; searchFocus.wrappedValue = true } }
 			}
+			.onHover { searchOver = $0 }
 			.padding(.horizontal, 12).frame(minWidth: 80, idealWidth: 288, maxWidth: 288).frame(height: 36)
 			.background(.white, in: Capsule()).overlay(Capsule().stroke(Color.slate(300))).help("Search albums, artists, IDs (⌘K)")
 			if app.playing != nil {
@@ -215,9 +221,8 @@ struct ViewToggle: View {
 	@State private var over = false
 	var body: some View {
 		Button(action: action) {
-			LucideIcon(icon: icon, size: 16).foregroundStyle(on ? Color.slate(900) : Color.slate(600)).frame(width: 32, height: 32)
-				.background(on ? Color.white : over ? Color.white.opacity(0.6) : .clear, in: Circle())
-				.shadow(color: .black.opacity(on ? 0.06 : 0), radius: 1, y: 1).contentShape(Circle())
+			LucideIcon(icon: icon, size: 16).foregroundStyle(on ? Color.slate(900) : over ? Color.slate(700) : Color.slate(400)).frame(width: 36, height: 30)
+				.background(on ? Color.slate(200) : .clear, in: Capsule()).contentShape(Capsule())
 		}.buttonStyle(.plain).onHover { over = $0 }.help(help)
 	}
 }

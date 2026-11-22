@@ -50,7 +50,7 @@ struct SettingsSheet: View {
 				}
 			}
 			Field(label: "Discogs API key", help: "Leave blank to keep the stored key.") {
-				SecureField(Keychain.get("discogs").map { $0.isEmpty ? "Not set" : "••••" + String($0.suffix(4)) } ?? "Not set", text: $key).font(.system(size: 14, design: .monospaced)).webField()
+				SecureField(Keychain.get("discogs").map { $0.isEmpty ? "Not set" : "••••" + String($0.suffix(4)) } ?? "Not set", text: $key).font(.system(size: 14, design: .monospaced)).clearable($key).webField()
 			}
 		}.frame(maxWidth: .infinity, alignment: .leading)
 	}
@@ -136,10 +136,10 @@ struct AlbumEditSheet: View {
 		Shell(title: "Edit album", width: 640, save: save, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 12) {
 				Field(label: "Album artist", help: "Saved as ALBUM_ARTIST_OVERRIDE and used instead of the Discogs artist. Empty removes the override and restores the Discogs artist.") {
-					HStack(spacing: 4) { TextField("", text: $artist).webField(); CopyButton(text: artist) }
+					HStack(spacing: 4) { TextField("", text: $artist).clearable($artist).webField(); CopyButton(text: artist) }
 				}
 				Field(label: "Album title", help: "Saved as ALBUM_TITLE_OVERRIDE and used instead of the Discogs title. Empty removes the override and restores the Discogs master title.") {
-					HStack(spacing: 4) { TextField("", text: $name).webField(); CopyButton(text: name) }
+					HStack(spacing: 4) { TextField("", text: $name).clearable($name).webField(); CopyButton(text: name) }
 				}
 			}
 		}
@@ -209,8 +209,8 @@ struct LyricsSheet: View {
 		} content: {
 			VStack(alignment: .leading, spacing: 0) {
 				HStack(spacing: 8) {
-					TextField("title to search for", text: $title).webField(height: 32).onSubmit { search() }
-					TextField("artist to search for", text: $artist).webField(height: 32).onSubmit { search() }
+					TextField("title to search for", text: $title).clearable($title).webField(height: 32).onSubmit { search() }
+					TextField("artist to search for", text: $artist).clearable($artist).webField(height: 32).onSubmit { search() }
 					Button { search() } label: { HStack(spacing: 6) { if busy { Spinner(size: 14) } else { AssetIcon(asset: .lrclib, size: 14) }; Text("Search lrclib.net") } }
 						.buttonStyle(WebButton(kind: .primary)).help("Search lrclib.net with this title and artist (not saved)")
 				}.padding(8).background(Color.slate(100), in: RoundedRectangle(cornerRadius: 12))
@@ -371,7 +371,10 @@ struct TagEditorSheet: View {
 	// MARK: Album tab
 
 	func small(_ s: String) -> some View { Text(s).font(.system(size: 11)).foregroundStyle(Color.slate(500)) }
-	func input(_ k: String) -> some View { TextField("", text: Binding(get: { fields[k] ?? "" }, set: { fields[k] = $0 })).webField() }
+	func input(_ k: String) -> some View {
+		let b = Binding(get: { fields[k] ?? "" }, set: { fields[k] = $0 })
+		return TextField("", text: b).clearable(b).webField()
+	}
 	func readOnlyInput(_ v: String) -> some View { Text(v.isEmpty ? " " : v).font(.system(size: 14)).foregroundStyle(Color.slate(600)).padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading).background(Color.slate(50), in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.slate(200))) }
 
 	var albumTab: some View {
@@ -543,7 +546,7 @@ struct TrackTable: View {
 			Text(chosen > 0 ? "\(chosen) selected" : "Click the boxes (shift-click for a range) to select tracks").foregroundStyle(Color.slate(600)).padding(.horizontal, 4)
 			if chosen > 0 {
 				Picker("", selection: $field) { Text("Disc").tag("disc"); Text("Artist").tag("artist"); Text("Track").tag("track") }.labelsHidden().frame(width: 90)
-				TextField("value for all selected", text: $value).webField(height: 32).frame(width: 192)
+				TextField("value for all selected", text: $value).clearable($value).webField(height: 32).frame(width: 192)
 				Button("Set") { for k in rows.indices where sel.contains(rows[k].id) { switch field { case "disc": rows[k].disc = value; case "artist": rows[k].artist = value; default: rows[k].track = value } } }.buttonStyle(WebButton(kind: .outline))
 				Text("Renumber from").foregroundStyle(Color.slate(600)).padding(.leading, 8)
 				TextField("", text: $start).webField(height: 32).frame(width: 64)
@@ -565,8 +568,10 @@ struct TrackTable: View {
 		}.font(.system(size: 12, weight: .medium)).foregroundStyle(Color.slate(500)).padding(.bottom, 4)
 	}
 
-	func cell(_ i: Int, _ kp: WritableKeyPath<TrackRow, String>) -> some View {
-		TextField("", text: Binding(get: { rows[i][keyPath: kp] }, set: { rows[i][keyPath: kp] = $0 })).webField(height: 28)
+	/// Disc and Track are number cells: no clear button (ADR 0094).
+	@ViewBuilder func cell(_ i: Int, _ kp: WritableKeyPath<TrackRow, String>) -> some View {
+		let b = Binding(get: { rows[i][keyPath: kp] }, set: { rows[i][keyPath: kp] = $0 })
+		if kp == \.disc || kp == \.track { TextField("", text: b).webField(height: 28) } else { TextField("", text: b).clearable(b).webField(height: 28) }
 	}
 
 	func row(_ i: Int, _ r: TrackRow) -> some View {
@@ -642,7 +647,7 @@ struct SubtitleDivider: View {
 		HStack(spacing: 8) {
 			if let disc { Text("Disc \(disc)").font(.system(size: 11, weight: .medium)).foregroundStyle(.white).padding(.horizontal, 10).padding(.vertical, 2).background(Color.sky(900), in: Capsule()) }
 			if editing {
-				TextField("", text: $text).webField(height: 28, border: .sky(400)).focused($focus).onSubmit { onSet(text) }.onExitCommand { onCancel() }
+				TextField("", text: $text).clearable($text).webField(height: 28, border: .sky(400)).focused($focus).onSubmit { onSet(text) }.onExitCommand { onCancel() }
 				Button("Set") { onSet(text) }.buttonStyle(WebButton(kind: .primary, size: .xs))
 				Button("Cancel", action: onCancel).buttonStyle(WebButton(kind: .outline, size: .xs))
 			} else {
@@ -809,6 +814,8 @@ struct AssignTable: View {
 		}
 	}
 
+	func ntBinding(_ k: Int, _ r: Int) -> Binding<String> { Binding(get: { a.files[k].nt ?? a.tracks[r].title }, set: { a.files[k].nt = $0 }) }
+
 	func row(_ k: Int, _ f: AFile, used: [Int: Int]) -> some View {
 		let t = album.tracks[f.i]
 		return HStack(alignment: .center, spacing: 8) {
@@ -816,7 +823,7 @@ struct AssignTable: View {
 				Text("File: \(t.url.lastPathComponent) · \(Inspector.mmss(t.info.duration))").font(.system(size: 12)).foregroundStyle(Color.slate(400)).lineLimit(1).help(t.url.lastPathComponent)
 				if numbers, let r = f.rel {
 					HStack(spacing: 8) {
-						TextField("", text: Binding(get: { a.files[k].nt ?? a.tracks[r].title }, set: { a.files[k].nt = $0 })).webField(height: 28, tint: .sky(50), border: .sky(300)).help("New title from the release; editable")
+						TextField("", text: ntBinding(k, r)).clearable(ntBinding(k, r)).webField(height: 28, tint: .sky(50), border: .sky(300)).help("New title from the release; editable")
 						ChannelBadge(n: t.info.channels)
 					}
 					HStack(spacing: 2) { Text("Was: \(t.title)").lineLimit(1); CopyButton(text: t.title, title: "Copy the old title") }.font(.system(size: 12)).foregroundStyle(Color.slate(400))
@@ -961,7 +968,7 @@ struct DiscogsSheet: View {
 			saveLabel: applying ? "Applying…" : raw != nil ? "Apply (\(a.n) of \(album.tracks.count))" : "Apply", saveDisabled: raw == nil || a.dup || a.n == 0 || busy || applying, danger: applying, save: apply, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 0) {
 				HStack(spacing: 8) {
-					TextField("Artist and album, or a Discogs release ID", text: $q).webField().onSubmit { search() }
+					TextField("Artist and album, or a Discogs release ID", text: $q).clearable($q).webField().onSubmit { search() }
 					Button { search() } label: { HStack(spacing: 6) { if busy { Spinner(size: 14) }; Text("Search Discogs") } }.buttonStyle(WebButton(kind: .primary))
 						.help(busy ? "Stops the running request and starts a new search" : "")
 				}
@@ -1082,7 +1089,7 @@ struct MusicBrainzSheet: View {
 			saveLabel: applying ? "Applying…" : detail != nil ? "Apply (\(a.n) of \(album.tracks.count))" : "Apply", saveDisabled: detail == nil || a.dup || busy || applying, danger: applying, save: apply, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 0) {
 				HStack(spacing: 8) {
-					TextField("Artist and album, or a MusicBrainz release ID", text: $q).webField().onSubmit { search() }
+					TextField("Artist and album, or a MusicBrainz release ID", text: $q).clearable($q).webField().onSubmit { search() }
 					Button { search() } label: { HStack(spacing: 6) { if busy { Spinner(size: 14) }; Text("Search MusicBrainz") } }.buttonStyle(WebButton(kind: .primary))
 						.help(busy ? "Stops the running request and starts a new search" : "")
 				}

@@ -183,7 +183,34 @@ struct WebField: ViewModifier {
 			.overlay(RoundedRectangle(cornerRadius: 6).stroke(border))
 	}
 }
+/// ADR 0094: an x at the right end of a text field while it holds text and is hovered or focused; it empties the
+/// field and keeps the focus there. Apply before `webField`, so the x sits inside the field's padding.
+struct Clearable: ViewModifier {
+	@Binding var text: String
+	@State private var over = false
+	@FocusState private var focused: Bool
+	func body(content: Content) -> some View {
+		content.focused($focused)
+			.padding(.trailing, 18)
+			.overlay(alignment: .trailing) {
+				if !text.isEmpty && (over || focused) { ClearX { text = ""; focused = true } }
+			}
+			.onHover { over = $0 }
+	}
+}
+
+/// The x itself: lucide X 14 px, slate-400, slate-700 on hover (web `input.tsx`).
+struct ClearX: View {
+	var action: () -> Void
+	@State private var over = false
+	var body: some View {
+		Button(action: action) { LucideIcon(icon: .x, size: 14).foregroundStyle(over ? Color.slate(700) : Color.slate(400)).frame(width: 16, height: 16).contentShape(Rectangle()) }
+			.buttonStyle(.plain).onHover { over = $0 }.help("Clear").accessibilityLabel("Clear")
+	}
+}
+
 extension View {
+	func clearable(_ text: Binding<String>) -> some View { modifier(Clearable(text: text)) }
 	func webField(height: CGFloat = 36, tint: Color = .white, border: Color = .slate(200)) -> some View { modifier(WebField(height: height, tint: tint, border: border)) }
 	func pointer() -> some View { onHover { $0 ? NSCursor.pointingHand.push() : NSCursor.pop() } }
 }

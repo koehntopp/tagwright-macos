@@ -248,7 +248,7 @@ struct LibraryTab: View {
 					Picker("", selection: b(\.fallback)) { Text("nothing (file stays)").tag(""); ForEach(LibTemplate.palette.filter { $0.key != c.tag }, id: \.key) { Text($0.label).tag($0.key) } }.labelsHidden().fixedSize()
 				}.help("Used when this tag is empty. Off by default: an empty tag keeps the file where it is.")
 			} else {
-				HStack(spacing: 8) { Text("Text"); TextField("", text: b(\.text)).font(.system(size: 14, design: .monospaced)).webField(height: 32).frame(width: 160) }
+				HStack(spacing: 8) { Text("Text"); TextField("", text: b(\.text)).font(.system(size: 14, design: .monospaced)).clearable(b(\.text)).webField(height: 32).frame(width: 160) }
 			}
 			Spacer(minLength: 0)
 		}.font(.system(size: 14)).padding(8).background(Color.slate(100), in: RoundedRectangle(cornerRadius: 8))
