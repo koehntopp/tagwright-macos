@@ -1,85 +1,111 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: top bar indicator (ADR 0037)
+// library.tsx: the top-bar indicator, the Library dialog and the Settings Library tab (ADR 0037).
 
 func n(_ x: Int, _ one: String) -> String { "\(x.formatted()) \(x == 1 ? one : one + "s")" }
+
+extension LibraryWatcher {
+	/// library.tsx describe(): the dot colour, whether it pulses, and the status sentence.
+	var described: (color: Color, pulse: Bool, text: String) {
+		let s = status
+		if s.phase == "error" { return (.rose(500), false, s.error.isEmpty ? "Error" : s.error) }
+		if s.phase == "scanning" || s.phase == "planning" { return (.sky(500), true, s.message.isEmpty ? "Scanning…" : s.message) }
+		if s.phase == "moving" { return (.sky(500), true, s.message.isEmpty ? "Moving files…" : s.message) }
+		if !settings.apply, !s.planned.isEmpty { return (.amber(500), false, "Report only: \(s.planned.count) move\(s.planned.count > 1 ? "s" : "") planned") }
+		if s.phase == "waiting" { return (.amber(500), false, s.message.isEmpty ? "Waiting for files to settle" : s.message) }
+		if !s.unplaced.isEmpty { return (.amber(500), false, "\(s.unplaced.count) file\(s.unplaced.count > 1 ? "s" : "") cannot be placed") }
+		return (.emerald(500), false, s.phase == "starting" ? "Starting…" : "Up to date")
+	}
+}
+
+struct Dot: View {
+	var color: Color
+	var pulse = false
+	@State private var dim = false
+	var body: some View {
+		Circle().fill(color).frame(width: 8, height: 8).opacity(pulse && dim ? 0.4 : 1)
+			.animation(pulse ? .easeInOut(duration: 1).repeatForever() : .default, value: dim).onAppear { dim = true }
+	}
+}
 
 struct LibraryIndicator: View {
 	@ObservedObject var lib: LibraryWatcher
 	var open: () -> Void
-	var d: (color: Color, text: String) {
-		let s = lib.status
-		if s.phase == "error" { return (.bad, s.error.isEmpty ? "Error" : s.error) }
-		if s.phase == "scanning" || s.phase == "planning" { return (.info, s.message.isEmpty ? "Scanning…" : s.message) }
-		if s.phase == "moving" { return (.info, s.message.isEmpty ? "Moving files…" : s.message) }
-		if !lib.settings.apply, !s.planned.isEmpty { return (.warn, "Report only: \(s.planned.count) move\(s.planned.count > 1 ? "s" : "") planned") }
-		if s.phase == "waiting" { return (.warn, s.message.isEmpty ? "Waiting for files to settle" : s.message) }
-		if !s.unplaced.isEmpty { return (.warn, "\(s.unplaced.count) file\(s.unplaced.count > 1 ? "s" : "") cannot be placed") }
-		return (.ok, s.phase == "starting" ? "Starting…" : "Up to date")
-	}
+	@State private var over = false
 	var body: some View {
-		let s = lib.status
+		let s = lib.status, d = lib.described
 		Button(action: open) {
 			HStack(spacing: 8) {
-				Circle().fill(d.color).frame(width: 8, height: 8)
-				VStack(alignment: .leading, spacing: 1) {
-					Text("\(n(s.artists, "artist")) · \(n(s.albums, "album")) · \(n(s.tracks, "track"))").font(.system(size: 14, weight: .semibold)).lineLimit(1)
-					Text(d.text).font(.system(size: 13)).foregroundStyle(Color.muted).lineLimit(1)
+				Dot(color: d.color, pulse: d.pulse)
+				VStack(alignment: .leading, spacing: 0) {
+					Text("\(n(s.artists, "artist")) · \(n(s.albums, "album")) · \(n(s.tracks, "track"))").font(.system(size: 15, weight: .medium)).lineLimit(1)
+					Text(d.text).font(.system(size: 15)).foregroundStyle(Color.slate(500)).lineLimit(1)
 				}
-			}.padding(.horizontal, 20).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-		}.buttonStyle(.plain).help("Library status")
+				Spacer(minLength: 0)
+			}
+			.padding(4).background(over ? Color.white.opacity(0.6) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
+		}.buttonStyle(.plain).onHover { over = $0 }.help("Library status")
 	}
 }
 
-// MARK: status dialog
+// MARK: Library dialog
 
 struct LibrarySheet: View {
 	@ObservedObject var lib: LibraryWatcher
 	@EnvironmentObject var app: AppState
-	@Environment(\.dismiss) var dismiss
+	@Environment(\.dialogMaxHeight) var maxH
 	func ago(_ d: Date?) -> String {
 		guard let d else { return "never" }
 		let s = Int(max(0, -d.timeIntervalSinceNow))
 		return s < 90 ? "\(s) s ago" : s < 5400 ? "\(Int((Double(s) / 60).rounded())) min ago" : "\(Int((Double(s) / 3600).rounded())) h ago"
 	}
 	var body: some View {
-		let s = lib.status
-		SheetFrame(title: "Library", width: 720, height: 620) {
-			VStack(alignment: .leading, spacing: 14) {
-				HStack {
-					VStack(alignment: .leading, spacing: 2) {
-						Text("\(n(s.artists, "artist")) · \(n(s.albums, "album")) · \(n(s.tracks, "track"))").font(.system(size: 15, weight: .semibold))
-						Text(s.phase == "error" ? s.error : (s.message.isEmpty ? "Last pass \(ago(s.lastScan)), last full pass \(ago(s.lastFull))" : s.message)).font(.system(size: 12)).foregroundStyle(s.phase == "error" ? Color.bad : Color.muted)
+		let s = lib.status, d = lib.described
+		Shell(title: "Library", width: 640, saveLabel: nil, cancelLabel: "Close", onClose: { app.sheet = nil }) {
+			Dot(color: d.color, pulse: d.pulse)
+		} content: {
+			VStack(alignment: .leading, spacing: 0) {
+				HStack(spacing: 8) {
+					ForEach([("Album artists", s.artists), ("Albums", s.albums), ("Tracks", s.tracks)], id: \.0) { l, v in
+						VStack(spacing: 0) { Text(v.formatted()).font(.system(size: 20, weight: .semibold)); Text(l).font(.system(size: 12)).foregroundStyle(Color.slate(500)) }
+							.frame(maxWidth: .infinity).padding(.vertical, 8).background(Color.slate(100), in: RoundedRectangle(cornerRadius: 12))
 					}
-					Spacer()
-					Button { lib.rescan() } label: { Label("Re-analyze", systemImage: "arrow.clockwise") }.help("A full pass now: lists and stats every file")
-					Button { exportCSV() } label: { Label("Export CSV", systemImage: "tablecells") }
 				}
-				Text(lib.settings.apply ? "Files are moved to the layout after \(Int(lib.settings.cooldown)) s without changes." : "Report only: nothing is moved (turn Apply on in Settings > Library).").font(.system(size: 12)).foregroundStyle(Color.muted)
+				Text(d.text).font(.system(size: 14)).padding(.top, 12)
+				Text(lib.rootPath).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.slate(500)).textSelection(.enabled).padding(.top, 4)
+				Text("Last scan \(ago(s.lastScan)), last full pass \(ago(s.lastFull)). \(lib.settings.apply ? "Changes are applied after \(Int(lib.settings.cooldown)) s without any change." : "Report only: nothing is moved (turn on Apply in Settings, Library).")")
+					.font(.system(size: 12)).foregroundStyle(Color.slate(500)).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
 				ScrollView {
 					VStack(alignment: .leading, spacing: 16) {
-						section("Planned moves", s.planned.map { ($0.from, "→ " + $0.to) })
-						section("Cannot be placed", s.unplaced.map { ($0.path, $0.reason) })
-						section("Skipped: fix the tags", s.skipped.map { ($0.path, $0.reason) })
-						section("Recent activity", s.recent.map { ($0.text, $0.t.formatted(date: .omitted, time: .standard)) })
-						if s.planned.isEmpty && s.unplaced.isEmpty && s.skipped.isEmpty && s.recent.isEmpty { Text("Nothing to do: the library is in order.").font(.system(size: 13)).foregroundStyle(Color.muted) }
-					}.frame(maxWidth: .infinity, alignment: .leading)
-				}
-				HStack { Spacer(); Button("Done") { dismiss() }.buttonStyle(.borderedProminent).tint(Color.ink).keyboardShortcut(.defaultAction) }
-			}.padding(20)
+						section("Recent activity", s.recent.prefix(15).map { ($0.text, ago($0.t)) })
+						section(lib.settings.apply ? "Waiting to move (\(s.waiting))" : "Planned moves (\(s.planned.count))", s.planned.prefix(20).map { ($0.from, "→ " + $0.to) })
+						section("Cannot be placed (\(s.unplaced.count))", s.unplaced.prefix(30).map { ($0.path, $0.reason) })
+						section("Skipped, conflicting names (\(s.skipped.count))", s.skipped.prefix(30).map { ($0.path, $0.reason) })
+					}.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 4)
+				}.frame(maxHeight: maxH * 0.45).fixedSize(horizontal: false, vertical: s.recent.count + s.planned.count + s.unplaced.count + s.skipped.count < 10).padding(.top, 12)
+				HStack(spacing: 8) {
+					Button { lib.rescan(); app.notify("Re-analysis started", kind: .success) } label: { HStack(spacing: 6) { LucideIcon(icon: .rotateCw, size: 14); Text("Re-analyze") } }
+						.buttonStyle(WebButton(kind: .outline)).help("Forget what is known about the folders and read everything again")
+					Text("Lists every folder and file again; a large library takes a while.").font(.system(size: 12)).foregroundStyle(Color.slate(500))
+					Spacer()
+					Button("Export CSV") { exportCSV() }.buttonStyle(WebButton(kind: .ghost))
+				}.padding(.top, 16)
+			}
 		}
 	}
 	@ViewBuilder func section(_ title: String, _ rows: [(String, String)]) -> some View {
 		if !rows.isEmpty {
 			VStack(alignment: .leading, spacing: 4) {
-				Text(title.uppercased()).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.muted)
-				ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
-					VStack(alignment: .leading, spacing: 0) {
-						Text(r.0).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-						Text(r.1).font(.system(size: 12)).foregroundStyle(Color.muted).lineLimit(2)
-					}.padding(.vertical, 3)
-					Divider()
+				Text(title.uppercased()).font(.system(size: 12, weight: .medium)).tracking(0.6).foregroundStyle(Color.slate(500))
+				VStack(alignment: .leading, spacing: 0) {
+					ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+						VStack(alignment: .leading, spacing: 0) {
+							Text(r.0).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle).help(r.0)
+							Text(r.1).font(.system(size: 12)).foregroundStyle(Color.slate(500)).lineLimit(1).help(r.1)
+						}.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+						.overlay(alignment: .bottom) { if i < rows.count - 1 { Rectangle().fill(Color.slate(100)).frame(height: 1) } }
+					}
 				}
 			}
 		}
@@ -90,98 +116,164 @@ struct LibrarySheet: View {
 	}
 }
 
-// MARK: settings, Library tab (ADR 0037): behaviour and the path template with a live preview
+// MARK: Settings, Library tab: behaviour and the path template with a live preview
 
 struct LibraryTab: View {
 	@ObservedObject var lib: LibraryWatcher
 	@Binding var draft: LibrarySettings
 	@State private var preview: (errors: [String], warnings: [String], album: String, albumDir: String, files: [(from: String, name: String, problem: String)])?
+	@State private var sel: (row: String, idx: Int)?
+	@State private var drag: (src: String, idx: Int, chip: LibTemplate.Chip)?
+	@State private var over = ""
+
+	static let formats = ["text": "Text", "num": "Number, zero-padded", "int": "Number", "year": "Year (4 digits)"]
+	func label(_ k: String) -> String { LibTemplate.palette.first { $0.key == k }?.label ?? k }
+
+	var rowKeys: [(key: String, name: String)] {
+		draft.template.folders.indices.map { ("f\($0)", "Folder level \($0 + 1)") } + (draft.template.discFolder != nil ? [("disc", "Disc folder (multi-disc albums only)")] : []) + [("file", "File name (the extension is added)")]
+	}
+	func chips(_ key: String) -> LibTemplate.Level {
+		key == "file" ? draft.template.filename : key == "disc" ? (draft.template.discFolder ?? []) : draft.template.folders[Int(key.dropFirst())!]
+	}
+	func mutate(_ key: String, _ f: (inout LibTemplate.Level) -> Void) {
+		if key == "file" { f(&draft.template.filename) }
+		else if key == "disc" { var l = draft.template.discFolder ?? []; f(&l); draft.template.discFolder = l }
+		else { f(&draft.template.folders[Int(key.dropFirst())!]) }
+	}
 
 	var body: some View {
-		Form {
-			Section("Watcher") {
-				Toggle("Apply: move files into the layout", isOn: $draft.apply)
-				Text(draft.apply ? "New and changed files are moved and renamed after the cooldown." : "Report only: the status lists what would move, nothing changes.").font(.caption).foregroundStyle(Color.muted)
-				Stepper(value: $draft.cooldown, in: 0...3600, step: 10) { Text(verbatim: "Cooldown: \(Int(draft.cooldown)) s") }
-				Stepper(value: $draft.interval, in: 10...3600, step: 10) { Text(verbatim: "Check every \(Int(draft.interval)) s") }
-				Stepper(value: $draft.sweepHours, in: 1...168, step: 1) { Text(verbatim: "Full pass at least every \(Int(draft.sweepHours)) h") }
-			}
-			Section("Layout") {
-				ForEach(draft.template.folders.indices, id: \.self) { i in
-					levelRow("Folder \(i + 1)", $draft.template.folders[i]) { if draft.template.folders.count > 1 { draft.template.folders.remove(at: i) } }
-				}
-				if draft.template.folders.count < LibTemplate.maxLevels {
-					Button("Add folder level") { draft.template.folders.append([LibTemplate.Chip(tag: "ALBUM")]) }
-				}
-				Toggle("Disc folder for multi-disc albums", isOn: Binding(get: { draft.template.discFolder != nil }, set: { draft.template.discFolder = $0 ? LibTemplate.default.discFolder : nil }))
-				if draft.template.discFolder != nil { levelRow("Disc folder", Binding($draft.template.discFolder)!, remove: nil) }
-				levelRow("File name", $draft.template.filename, remove: nil)
-				Button("Reset to the bliss layout") { draft.template = LibTemplate.default }
-			}
-			Section("Preview") {
-				if let p = preview {
-					ForEach(p.errors + [], id: \.self) { Text($0).font(.caption).foregroundStyle(Color.bad) }
-					ForEach(p.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(Color.warn) }
-					if p.errors.isEmpty {
-						Text(p.album.isEmpty ? "The library has no files yet." : "Album \(p.album)").font(.caption).foregroundStyle(Color.muted)
-						if !p.albumDir.isEmpty { Text(p.albumDir + "/").font(.system(size: 12, weight: .semibold, design: .monospaced)) }
-						ForEach(Array(p.files.prefix(12).enumerated()), id: \.offset) { _, f in
-							Text(f.problem.isEmpty ? f.name : "\(URL(fileURLWithPath: f.from).lastPathComponent): \(f.problem)").font(.system(size: 12, design: .monospaced)).foregroundStyle(f.problem.isEmpty ? Color.ink : Color.warn)
+		VStack(alignment: .leading, spacing: 16) {
+			HStack(spacing: 12) {
+				Toggle("Apply changes", isOn: $draft.apply).toggleStyle(.checkbox).frame(maxWidth: .infinity, alignment: .leading)
+				HStack(spacing: 8) { Text("Cooldown (s)"); TextField("", value: $draft.cooldown, format: .number).webField(height: 32).frame(width: 80) }.frame(maxWidth: .infinity, alignment: .leading)
+				HStack(spacing: 8) { Text("Check every (s)"); TextField("", value: $draft.interval, format: .number).webField(height: 32).frame(width: 80) }.frame(maxWidth: .infinity, alignment: .leading)
+			}.font(.system(size: 14))
+			Text("With Apply off the library only reports what it would move. A file is acted on only after nothing in its folder has changed for the cooldown.").font(.system(size: 12)).foregroundStyle(Color.slate(500)).padding(.top, -8)
+
+			VStack(alignment: .leading, spacing: 4) {
+				(Text("Tags ").fontWeight(.medium) + Text("(drag into a row below)").foregroundStyle(Color.slate(500))).font(.system(size: 14))
+				FlowRow {
+					ForEach(LibTemplate.palette, id: \.key) { p in
+						paletteChip(p.label, dashed: false).onDrag {
+							drag = ("palette", 0, LibTemplate.Chip(tag: p.key, fmt: ["DISCNUMBER", "TRACKNUMBER"].contains(p.key) ? "num" : ["DATE", "ORIGINALDATE"].contains(p.key) ? "year" : "text", pad: ["DISCNUMBER", "TRACKNUMBER"].contains(p.key) ? 2 : 0))
+							return NSItemProvider(object: p.key as NSString)
 						}
 					}
+					paletteChip("Text", dashed: true).onDrag { drag = ("palette", 0, LibTemplate.Chip(text: "_")); return NSItemProvider(object: "_" as NSString) }
 				}
 			}
+
+			VStack(alignment: .leading, spacing: 8) {
+				ForEach(rowKeys, id: \.key) { r in templateRow(r.key, r.name) }
+				HStack(spacing: 8) {
+					if draft.template.folders.count < LibTemplate.maxLevels { Button { draft.template.folders.append([]) } label: { HStack(spacing: 4) { LucideIcon(icon: .plus, size: 12); Text("Folder level") } }.buttonStyle(WebButton(kind: .outline, size: .xs)) }
+					if draft.template.discFolder == nil { Button { draft.template.discFolder = [LibTemplate.Chip(text: "Disc "), LibTemplate.Chip(tag: "DISCNUMBER", fmt: "int")] } label: { HStack(spacing: 4) { LucideIcon(icon: .plus, size: 12); Text("Disc folder") } }.buttonStyle(WebButton(kind: .outline, size: .xs)) }
+					Button("Reset to bliss default") { draft.template = LibTemplate.default; sel = nil }.buttonStyle(WebButton(kind: .ghost, size: .xs))
+				}.padding(.leading, 184)
+			}
+
+			if let s = sel, s.idx < chips(s.row).count { chipEditor(s.row, s.idx) }
+
+			if let p = preview { previewBox(p) }
 		}
-		.formStyle(.grouped).scrollContentBackground(.hidden).frame(maxWidth: .infinity, maxHeight: .infinity)
+		.frame(maxWidth: .infinity, alignment: .leading)
 		.task(id: draft.template) { try? await Task.sleep(nanoseconds: 400_000_000); if !Task.isCancelled { preview = lib.preview(draft.template) } }
 	}
 
-	func levelRow(_ title: String, _ level: Binding<LibTemplate.Level>, remove: (() -> Void)?) -> some View {
-		HStack(alignment: .center, spacing: 6) {
-			Text(title).frame(width: 80, alignment: .leading)
-			ForEach(level.wrappedValue.indices, id: \.self) { j in
-				ChipView(chip: level[j], left: j > 0 ? { level.wrappedValue.swapAt(j, j - 1) } : nil, right: j < level.wrappedValue.count - 1 ? { level.wrappedValue.swapAt(j, j + 1) } : nil, remove: { level.wrappedValue.remove(at: j) })
-			}
-			Menu {
-				ForEach(LibTemplate.palette, id: \.key) { p in Button(p.label) { level.wrappedValue.append(LibTemplate.Chip(tag: p.key, fmt: p.key == "DATE" || p.key == "ORIGINALDATE" ? "year" : p.key == "TRACKNUMBER" || p.key == "DISCNUMBER" ? "num" : "text", pad: p.key == "TRACKNUMBER" || p.key == "DISCNUMBER" ? 2 : 0)) } }
-				Divider()
-				Button("Text…") { level.wrappedValue.append(LibTemplate.Chip(text: "_")) }
-			} label: { Image(systemName: "plus.circle") }.menuStyle(.borderlessButton).fixedSize()
-			Spacer(minLength: 0)
-			if let remove { Button(role: .destructive, action: remove) { Image(systemName: "minus.circle") }.buttonStyle(.plain).help("Remove this folder level") }
-		}
+	func paletteChip(_ t: String, dashed: Bool) -> some View {
+		HStack(spacing: 4) { LucideIcon(icon: .gripVertical, size: 12).foregroundStyle(Color.slate(400)); Text(t) }
+			.font(.system(size: 12)).padding(.horizontal, 10).padding(.vertical, 2)
+			.background(.white, in: Capsule()).overlay(Capsule().stroke(dashed ? Color.slate(400) : .slate(300), style: StrokeStyle(lineWidth: 1, dash: dashed ? [3, 2] : [])))
+			.onHover { $0 ? NSCursor.openHand.push() : NSCursor.pop() }
 	}
-}
 
-struct ChipView: View {
-	@Binding var chip: LibTemplate.Chip
-	var left: (() -> Void)?, right: (() -> Void)?, remove: () -> Void
-	var label: String {
-		let l = LibTemplate.palette.first { $0.key == chip.tag }?.label ?? chip.tag
-		return chip.fmt == "text" ? l : "\(l) · \(chip.fmt)\(chip.fmt == "num" && chip.pad > 0 ? "\(chip.pad)" : "")"
+	func chipText(_ c: LibTemplate.Chip) -> String {
+		c.tag.isEmpty ? "“\(c.text)”" : label(c.tag) + (c.fmt != "text" ? " · \(c.fmt == "num" ? "#\(c.pad > 0 ? "\(c.pad)" : "")" : c.fmt)" : "") + (c.fallback.isEmpty ? "" : " / \(label(c.fallback))")
 	}
-	var body: some View {
-		if chip.tag.isEmpty {
-			HStack(spacing: 2) {
-				TextField("", text: $chip.text, prompt: Text("text")).labelsHidden().textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).frame(width: max(24, CGFloat(chip.text.count) * 8 + 12))
-				menu
-			}.padding(.horizontal, 6).padding(.vertical, 3).background(Color.black.opacity(0.06), in: Capsule())
-		} else {
-			HStack(spacing: 2) { Text(label).font(.system(size: 12, weight: .medium)); menu }
-				.padding(.horizontal, 8).padding(.vertical, 3).background(Color.ink.opacity(0.1), in: Capsule())
+
+	func templateRow(_ key: String, _ name: String) -> some View {
+		let cs = chips(key)
+		return HStack(spacing: 8) {
+			Text(name).font(.system(size: 12)).foregroundStyle(Color.slate(600)).frame(width: 176, alignment: .leading)
+			FlowRow {
+				if cs.isEmpty { Text("drop tags here").font(.system(size: 12)).foregroundStyle(Color.slate(400)).padding(.horizontal, 4).frame(height: 22) }
+				ForEach(Array(cs.enumerated()), id: \.offset) { i, c in
+					let on = sel?.row == key && sel?.idx == i
+					HStack(spacing: 4) {
+						Text(chipText(c))
+						Button { mutate(key) { $0.remove(at: i) }; sel = nil } label: { LucideIcon(icon: .x, size: 12) }.buttonStyle(.plain).opacity(0.6).help("Remove")
+					}
+					.font(.system(size: 12)).foregroundStyle(c.tag.isEmpty ? Color.ink : .white).padding(.horizontal, 10).padding(.vertical, 2)
+					.background(c.tag.isEmpty ? Color.white : .slate(800), in: Capsule())
+					.overlay(Capsule().stroke(c.tag.isEmpty ? Color.slate(400) : .clear, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+					.overlay(Capsule().stroke(on ? Color.sky(400) : .clear, lineWidth: 2).padding(-2))
+					.onTapGesture { sel = on ? nil : (key, i) }
+					.onDrag { drag = (key, i, c); return NSItemProvider(object: "\(key):\(i)" as NSString) }
+					.onDrop(of: [.text], isTargeted: nil) { _ in drop(key, i); return true }
+				}
+			}
+			.padding(.horizontal, 6).padding(.vertical, 4).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+			.background(over == key ? Color.sky(50) : .slate(50), in: RoundedRectangle(cornerRadius: 8))
+			.overlay(RoundedRectangle(cornerRadius: 8).stroke(over == key ? Color.sky(400) : .slate(300)))
+			.onDrop(of: [.text], isTargeted: Binding(get: { over == key }, set: { over = $0 ? key : (over == key ? "" : over) })) { _ in drop(key, cs.count); return true }
+			if key.hasPrefix("f"), draft.template.folders.count > 1 {
+				Button { draft.template.folders.remove(at: Int(key.dropFirst())!); sel = nil } label: { LucideIcon(icon: .x, size: 16) }.buttonStyle(IconButton(color: .slate(400), hover: .clear, hoverText: .rose(600))).help("Remove this level")
+			}
+			if key == "disc" { Button { draft.template.discFolder = nil; sel = nil } label: { LucideIcon(icon: .x, size: 16) }.buttonStyle(IconButton(color: .slate(400), hover: .clear, hoverText: .rose(600))).help("No disc folder") }
 		}
 	}
-	var menu: some View {
-		Menu {
-			if !chip.tag.isEmpty {
-				Picker("Format", selection: $chip.fmt) { ForEach(LibTemplate.formats, id: \.self) { Text($0).tag($0) } }
-				if chip.fmt == "num" { Picker("Padding", selection: $chip.pad) { ForEach(0...6, id: \.self) { Text("\($0)").tag($0) } } }
-				Picker("If empty, use", selection: $chip.fallback) { Text("nothing (file waits)").tag(""); ForEach(LibTemplate.palette, id: \.key) { Text($0.label).tag($0.key) } }
-				Divider()
+
+	func drop(_ row: String, _ at: Int) {
+		guard let d = drag else { return }
+		drag = nil; over = ""
+		var at = at
+		if d.src != "palette" {
+			mutate(d.src) { $0.remove(at: d.idx) }
+			if d.src == row && d.idx < at { at -= 1 }
+		}
+		mutate(row) { $0.insert(d.chip, at: min(at, $0.count)) }
+		sel = nil
+	}
+
+	func chipEditor(_ row: String, _ i: Int) -> some View {
+		let c = chips(row)[i]
+		let b: (WritableKeyPath<LibTemplate.Chip, String>) -> Binding<String> = { kp in Binding(get: { chips(row)[i][keyPath: kp] }, set: { v in mutate(row) { $0[i][keyPath: kp] = v } }) }
+		return HStack(spacing: 12) {
+			if !c.tag.isEmpty {
+				Text(label(c.tag)).fontWeight(.medium)
+				HStack(spacing: 4) { Text("Format"); Picker("", selection: b(\.fmt)) { ForEach(["text", "num", "int", "year"], id: \.self) { Text(Self.formats[$0]!).tag($0) } }.labelsHidden().fixedSize() }
+				if c.fmt == "num" { HStack(spacing: 4) { Text("Digits"); TextField("", value: Binding(get: { chips(row)[i].pad }, set: { v in mutate(row) { $0[i].pad = max(0, min(6, v)) } }), format: .number).webField(height: 32).frame(width: 64) } }
+				HStack(spacing: 4) {
+					Text("If empty use")
+					Picker("", selection: b(\.fallback)) { Text("nothing (file stays)").tag(""); ForEach(LibTemplate.palette.filter { $0.key != c.tag }, id: \.key) { Text($0.label).tag($0.key) } }.labelsHidden().fixedSize()
+				}.help("Used when this tag is empty. Off by default: an empty tag keeps the file where it is.")
+			} else {
+				HStack(spacing: 8) { Text("Text"); TextField("", text: b(\.text)).font(.system(size: 14, design: .monospaced)).webField(height: 32).frame(width: 160) }
 			}
-			if let left { Button("Move left", action: left) }
-			if let right { Button("Move right", action: right) }
-			Button("Remove", role: .destructive, action: remove)
-		} label: { Image(systemName: "chevron.down").font(.system(size: 9)) }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+			Spacer(minLength: 0)
+		}.font(.system(size: 14)).padding(8).background(Color.slate(100), in: RoundedRectangle(cornerRadius: 8))
+	}
+
+	func previewBox(_ p: (errors: [String], warnings: [String], album: String, albumDir: String, files: [(from: String, name: String, problem: String)])) -> some View {
+		VStack(alignment: .leading, spacing: 4) {
+			(Text("Preview").fontWeight(.medium) + Text(!p.album.isEmpty && p.album != "." ? " · from \(p.album)" : "").foregroundStyle(Color.slate(500)))
+			ForEach(p.errors, id: \.self) { Text($0).foregroundStyle(Color.rose(600)) }
+			ForEach(p.warnings, id: \.self) { Text($0).foregroundStyle(Color.amber(600)) }
+			if !p.albumDir.isEmpty {
+				Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 2) {
+					GridRow { Text("Album folder").foregroundStyle(Color.slate(500)).frame(width: 88, alignment: .leading); Text(p.albumDir + "/").font(.system(size: 12, design: .monospaced)) }
+					GridRow {
+						Text("File names").foregroundStyle(Color.slate(500))
+						VStack(alignment: .leading, spacing: 2) { ForEach(Array(p.files.filter { !$0.name.isEmpty }.prefix(12).enumerated()), id: \.offset) { _, f in Text(f.name).font(.system(size: 12, design: .monospaced)).lineLimit(1) } }
+					}
+				}.padding(.top, 4)
+			}
+			ForEach(Array(p.files.filter { !$0.problem.isEmpty }.prefix(4).enumerated()), id: \.offset) { _, f in
+				Text("\(URL(fileURLWithPath: f.from).lastPathComponent): \(f.problem)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.amber(600)).lineLimit(1)
+			}
+			if p.files.isEmpty && p.errors.isEmpty { Text("No albums in the library yet.").foregroundStyle(Color.slate(400)) }
+		}
+		.font(.system(size: 12)).padding(8).frame(maxWidth: .infinity, alignment: .leading)
+		.overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.slate(200)))
 	}
 }

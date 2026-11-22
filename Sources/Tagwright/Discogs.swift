@@ -351,6 +351,8 @@ enum MusicBrainz {
 		var title = "", artist = ""
 		var id: String, groupID: String, groupTypes: String, artistIDs: [String], barcode: String, asin: String, country: String, status: String
 		var tracks: [DTrack]; var trackArtistIDs: [[String]]
+		var year = "", format = "", label = "", catno = "", groupTitle = "", groupFirst = ""
+		var artists: [(id: String, name: String)] = []
 	}
 
 	/// Full release with its tracks (ADR 0078: MusicBrainz tracks carry disc, position on the medium, title, artist, length).
@@ -370,8 +372,17 @@ enum MusicBrainz {
 				ids.append(credit.compactMap { ($0["artist"] as? [String: Any])?["id"] as? String })
 			}
 		}
-		return Detail(title: r["title"] as? String ?? "", artist: (r["artist-credit"] as? [[String: Any]] ?? []).map { c in (c["name"] as? String ?? "") + (c["joinphrase"] as? String ?? "") }.joined(), id: id, groupID: g["id"] as? String ?? "", groupTypes: types, artistIDs: ac, barcode: r["barcode"] as? String ?? "", asin: r["asin"] as? String ?? "",
+		var d = Detail(title: r["title"] as? String ?? "", artist: (r["artist-credit"] as? [[String: Any]] ?? []).map { c in (c["name"] as? String ?? "") + (c["joinphrase"] as? String ?? "") }.joined(), id: id, groupID: g["id"] as? String ?? "", groupTypes: types, artistIDs: ac, barcode: r["barcode"] as? String ?? "", asin: r["asin"] as? String ?? "",
 			country: r["country"] as? String ?? "", status: r["status"] as? String ?? "", tracks: tracks, trackArtistIDs: ids)
+		let li = r["label-info"] as? [[String: Any]] ?? []
+		d.year = String((r["date"] as? String ?? "").prefix(4))
+		d.format = Array(Set((r["media"] as? [[String: Any]] ?? []).compactMap { $0["format"] as? String })).sorted().joined(separator: ", ")
+		d.label = Array(NSOrderedSet(array: li.compactMap { ($0["label"] as? [String: Any])?["name"] as? String })).compactMap { $0 as? String }.prefix(2).joined(separator: ", ")
+		d.catno = li.compactMap { $0["catalog-number"] as? String }.first ?? ""
+		d.groupTitle = g["title"] as? String ?? ""
+		d.groupFirst = String((g["first-release-date"] as? String ?? "").prefix(4))
+		d.artists = (r["artist-credit"] as? [[String: Any]] ?? []).compactMap { c in (c["artist"] as? [String: Any]).flatMap { a in (a["id"] as? String).map { ($0, c["name"] as? String ?? a["name"] as? String ?? "") } } }
+		return d
 	}
 
 	/// languages.py: the sung languages per release track (union over the recording's works), or nil when

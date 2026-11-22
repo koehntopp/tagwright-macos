@@ -92,7 +92,10 @@ enum Assign {
 	}
 
 	/// For every file the index of its release track, or nil.
-	static func propose(files: [Track], release: [DTrack]) -> [Int?] {
+	static func propose(files: [Track], release: [DTrack]) -> [Int?] { proposeScored(files: files, release: release).map(\.0) }
+
+	/// The proposal with each file's score; the dialogs show "match" from 0.6, "check" below (web conf).
+	static func proposeScored(files: [Track], release: [DTrack]) -> [(Int?, Double)] {
 		var scores: [(Double, Int, Int)] = []
 		for (i, f) in files.enumerated() {
 			for (j, t) in release.enumerated() {
@@ -102,8 +105,8 @@ enum Assign {
 				scores.append((s, i, j))
 			}
 		}
-		var out = [Int?](repeating: nil, count: files.count), usedT = Set<Int>()
-		for (s, i, j) in scores.sorted(by: { $0.0 > $1.0 }) where s >= 0.35 && out[i] == nil && !usedT.contains(j) { out[i] = j; usedT.insert(j) }
+		var out = [(Int?, Double)](repeating: (nil, 0), count: files.count), usedT = Set<Int>()
+		for (s, i, j) in scores.sorted(by: { $0.0 > $1.0 }) where s >= 0.35 && out[i].0 == nil && !usedT.contains(j) { out[i] = (j, (s * 100).rounded() / 100); usedT.insert(j) }
 		return out
 	}
 

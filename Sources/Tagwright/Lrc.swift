@@ -214,6 +214,27 @@ enum Lrc {
 		return Result(lyrics: "", kind: "none", action: "skip")
 	}
 
+	/// lrclib /api/search for the lyrics dialog (app.py lrclib_search): up to 20 results with their lyrics; nothing is written.
+	struct Hit { var artist: String, title: String, album: String, duration: Int, instrumental: Bool, synced: String, plain: String }
+	static func search(title: String, artist: String) async throws -> [Hit] {
+		guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { throw StepError("enter a title to search for") }
+		var c = URLComponents(string: "https://lrclib.net/api/search")!
+		c.queryItems = [URLQueryItem(name: "track_name", value: title.trimmingCharacters(in: .whitespaces))] + (artist.trimmingCharacters(in: .whitespaces).isEmpty ? [] : [URLQueryItem(name: "artist_name", value: artist.trimmingCharacters(in: .whitespaces))])
+		var req = URLRequest(url: c.url!)
+		req.setValue("Tagwright/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
+		req.timeoutInterval = 15
+		let d: Data, resp: URLResponse
+		do { (d, resp) = try await URLSession.shared.data(for: req) } catch is CancellationError { throw CancellationError() } catch { throw StepError("lrclib.net could not be reached: \(error.localizedDescription)") }
+		let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+		guard code == 200 else { throw StepError("lrclib.net answered HTTP \(code)") }
+		let rows = (try? JSONSerialization.jsonObject(with: d) as? [[String: Any]]) ?? []
+		return rows.prefix(20).map { x in
+			Hit(artist: x["artistName"] as? String ?? "", title: x["trackName"] as? String ?? "", album: x["albumName"] as? String ?? "",
+				duration: Int(((x["duration"] as? Double) ?? 0).rounded()), instrumental: x["instrumental"] as? Bool ?? false,
+				synced: x["syncedLyrics"] as? String ?? "", plain: x["plainLyrics"] as? String ?? "")
+		}
+	}
+
 	/// One lrclib /get lookup (browser-style retry on 429/5xx once, honouring Retry-After).
 	static func lrclib(_ params: [String: String]) async -> Lookup {
 		var c = URLComponents(string: "https://lrclib.net/api/get")!

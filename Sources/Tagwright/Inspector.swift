@@ -1,19 +1,24 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The inspector (inspector.tsx): header, artwork, actions, notes, folders, pipeline, tracks and log.
 struct Inspector: View {
 	@EnvironmentObject var app: AppState
-	@State private var focusStep: Int?
+	@State private var stepSel: StepID?
+	@State private var tracksOpen = true
 	@State private var logOpen = false
 
 	var body: some View {
 		Group {
 			if let a = app.selected {
 				ScrollView {
-					VStack(alignment: .leading, spacing: 16) {
+					VStack(alignment: .leading, spacing: 20) {
 						header(a)
+						LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 4), spacing: 8) {
+							ForEach(ArtType.allCases) { t in ArtworkField(album: a, type: t) }
+						}
 						actions(a)
-						alerts(a)
+						notes(a)
 						folderBox(a)
 						pipeline(a)
 						tracks(a)
@@ -22,310 +27,419 @@ struct Inspector: View {
 					.padding(24)
 				}
 				.task(id: a.id + a.mbid + a.discogsID) { await app.checkMusicBrainz(a) }
+				.onChange(of: a.id) { stepSel = nil }
 			} else {
-				VStack(spacing: 8) {
-					Image(systemName: "square.stack").font(.system(size: 36)).foregroundStyle(Color.muted.opacity(0.5))
-					Text("Select an album").foregroundStyle(Color.muted)
-				}.frame(maxWidth: .infinity, maxHeight: .infinity)
+				Text("Select an album.").foregroundStyle(Color.slate(500)).padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 			}
 		}
 		.background(.white)
 	}
 
+	var running: Bool { app.job?.hasPrefix("Fixing") == true }
+
 	// MARK: header
 
+	func pen(_ help: String, size: CGFloat = 12, _ action: @escaping () -> Void) -> some View {
+		Button(action: action) { LucideIcon(icon: .pencil, size: size).foregroundStyle(Color.ink) }.buttonStyle(.plain).pointer().help(help)
+	}
+
 	func header(_ a: Album) -> some View {
-		VStack(alignment: .leading, spacing: 14) {
-			VStack(alignment: .leading, spacing: 6) {
-				editable(a.artist, size: 14, weight: .regular, color: Color.muted)
-				editable(a.title, size: 24, weight: .semibold, color: .ink)
-				// web: flag, then VERSION (it already holds year, DR, format and catalogue number), then a copy button
-				HStack(spacing: 4) {
-					let flag = Flag.of(a.country)
-					Text((flag.isEmpty ? "" : flag + " ") + (a.version.isEmpty ? [a.year, a.format.isEmpty ? "CD" : a.format, a.catalog].filter { !$0.isEmpty }.joined(separator: " · ") : a.version))
-						.font(.system(size: 14)).foregroundStyle(Color.muted).textSelection(.enabled).help(a.country)
-					if !a.catalog.isEmpty, a.catalog.lowercased() != "none" {
-						Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(a.catalog, forType: .string); app.notify("Copied") } label: { LucideIcon(icon: .copy, size: 12) }
-							.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Copy the catalogue number")
-					}
-				}
-				HStack(spacing: 8) {
-					idBadge(a.discogsID, icon: AnyView(Image(systemName: "opticaldisc.fill").foregroundStyle(Color.ink)), url: "https://www.discogs.com/release/\(a.discogsID)") { app.sheet = .discogs }
-					idBadge(a.mbid, icon: AnyView(Image(systemName: "hexagon.fill").foregroundStyle(LinearGradient(colors: [Color(hex: 0xba478f), Color(hex: 0xeb743b)], startPoint: .leading, endPoint: .trailing))), url: "https://musicbrainz.org/release/\(a.mbid)") { app.sheet = .musicbrainz }
-					if !a.albumDR.isEmpty { DRBadge(value: a.albumDR) }
-				}.padding(.top, 2)
+		VStack(alignment: .leading, spacing: 4) {
+			HStack(spacing: 4) {
+				Text(a.artist.isEmpty ? "No artist" : a.artist).lineLimit(1).help(a.tracks.first?.tags.first("ALBUMARTIST").isEmpty == false ? "" : "from ARTIST tag")
+				pen("Edit album artist and title") { app.sheet = .albumEdit }
+				if !a.artist.isEmpty { CopyButton(text: a.artist) }
+			}.font(.system(size: 12)).foregroundStyle(Color.slate(500))
+			HStack(spacing: 4) {
+				Text(a.title).font(.system(size: 20, weight: .semibold)).textSelection(.enabled)
+				pen("Edit album artist and title") { app.sheet = .albumEdit }.padding(.leading, 2)
+				CopyButton(text: a.title)
 			}
-			artworkRow(a)
-		}
-	}
-
-	func editable(_ s: String, size: CGFloat, weight: Font.Weight, color: Color) -> some View {
-		HStack(spacing: 6) {
-			Text(s).font(.system(size: size, weight: weight)).foregroundStyle(color).textSelection(.enabled)
-			Button { app.sheet = .tagEditor } label: { LucideIcon(icon: .pencil, size: max(13, size * 0.6)) }.buttonStyle(IconButton(hover: Color.board)).help("Edit in the Tag Editor")
-			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string); app.notify("Copied") } label: { LucideIcon(icon: .copy, size: max(12, size * 0.55)) }
-				.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Copy")
-		}
-	}
-
-	/// Service icon plus the ID (opens the release page) or a red "missing"; the pencil opens the search.
-	func idBadge(_ id: String, icon: AnyView, url: String, search: @escaping () -> Void) -> some View {
-		HStack(spacing: 6) {
-			Button { if !id.isEmpty { NSWorkspace.shared.open(URL(string: url)!) } } label: {
-				HStack(spacing: 6) {
-					icon.font(.system(size: 14))
-					Text(id.isEmpty ? "missing" : (id.count > 12 ? String(id.prefix(8)) : id)).font(.system(size: 12, weight: .medium, design: id.isEmpty ? .default : .monospaced))
-				}
-				.foregroundStyle(id.isEmpty ? Color(hex: 0xbe123c) : Color.ink)
-				.padding(.horizontal, 10).padding(.vertical, 4)
-				.background(id.isEmpty ? Color(hex: 0xffe4e6) : Color.board, in: Capsule())
-			}.buttonStyle(.plain)
-			Button(action: search) { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton(hover: Color.board)).help("Search")
-		}
-	}
-
-	func copyable(_ s: String, size: CGFloat, weight: Font.Weight, color: Color) -> some View {
-		HStack(spacing: 5) {
-			Text(s).font(.system(size: size, weight: weight)).foregroundStyle(color).textSelection(.enabled)
-			Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string); app.notify("Copied") } label: { LucideIcon(icon: .copy, size: 12) }
-				.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Copy")
+			HStack(spacing: 2) {
+				let flag = Flag.of(a.country)
+				// the version string already holds year, DR, format and catalogue number: nothing is shown twice
+				Text((flag.isEmpty ? "" : flag + " ") + (a.version.isEmpty ? [a.dateYear, a.format.isEmpty ? "CD" : a.format, a.catalog].filter { !$0.isEmpty }.joined(separator: " · ") : a.version))
+					.font(.system(size: 12)).foregroundStyle(Color.slate(500)).textSelection(.enabled).help(a.country)
+				if !a.catalog.isEmpty, a.catalog.lowercased() != "none" { CopyButton(text: a.catalog, title: "Copy the catalogue number") }
+			}.padding(.top, 2)
+			let q = [a.artist, a.title].filter { !$0.isEmpty }.joined(separator: " ")
+			HStack(spacing: 4) {
+				IdBadge(service: .discogs, id: a.discogsID, query: q)
+				pen("Change the Discogs release") { app.sheet = .discogs }.padding(.trailing, 4)
+				IdBadge(service: .musicbrainz, id: a.mbid, query: q)
+				pen("Choose the MusicBrainz release") { app.sheet = .musicbrainz }.padding(.trailing, 4)
+				if !a.albumDR.isEmpty { DRBadge(value: a.albumDR) }
+			}.padding(.top, 8)
 		}
 	}
 
 	// MARK: actions
 
 	func actions(_ a: Album) -> some View {
-		let busy = app.job != nil
+		let mismatch = app.mbCheck[a.id]?.mismatches ?? []
+		let inLibrary = app.source == .library
 		return HStack(spacing: 8) {
-			Button("Tag Editor") { app.sheet = .tagEditor }.buttonStyle(SoftButton(dark: true))
-			Button { app.run(a) } label: { Text(app.job?.hasPrefix("Fixing") == true ? "Running…" : "Run fixes") }
-				.buttonStyle(SoftButton(danger: app.job?.hasPrefix("Fixing") == true)).disabled(busy || a.status == .needs)
-				.help(a.status == .needs ? "Resolve the issues first" : "Run every open step")
-			Button(app.job?.hasPrefix("Moving") == true ? "Moving…" : "Move to library") { app.sheet = .move }.buttonStyle(SoftButton(danger: app.job?.hasPrefix("Moving") == true)).disabled(busy || app.source == .library || !a.canMove || !(app.mbCheck[a.id]?.mismatches.isEmpty ?? true))
-				.help((app.mbCheck[a.id]?.mismatches.first).map { $0 + " Fix the release before moving." } ?? "")
+			Button("Tag Editor") { app.editorTab = 0; app.sheet = .tagEditor }.buttonStyle(WebButton(kind: .primary, size: .md, full: true))
+			Button(running ? "Running…" : "Run fixes") { app.run(a) }
+				.buttonStyle(WebButton(kind: running ? .danger : .outline, size: .md, full: true))
+				.disabled(a.status == .needs || app.job != nil).opacity(running ? 2 : 1)
+			Button("Move to library") { app.sheet = .move }
+				.buttonStyle(WebButton(kind: .outline, size: .md, full: true))
+				.disabled(inLibrary || a.status != .fixed || a.issues.contains { $0.level == .ingest } || !mismatch.isEmpty || app.job != nil)
+				.help(inLibrary ? "This album is already in the library" : mismatch.first.map { "\($0) Fix the release before moving." } ?? "")
 		}
 	}
 
-	// MARK: artwork (ADR 0090)
+	// MARK: notes (one box per note: type at the left, lines beside it, the action at the right)
 
-	func artworkRow(_ a: Album) -> some View {
-		HStack(alignment: .top, spacing: 10) {
-			ForEach(ArtType.allCases) { t in ArtworkField(album: a, type: t) }
-		}
-	}
-
-	// MARK: notes (ADR 0083: one shell, type at the left, button at the right)
-
-	enum NoteType { case problem, mismatch, missing, warning, note, optional
-		var label: String { ["PROBLEM", "MISMATCH", "MISSING", "WARNING", "NOTE", "OPTIONAL"][[NoteType.problem, .mismatch, .missing, .warning, .note, .optional].firstIndex(of: self)!] }
-		var tone: (fg: Color, bg: Color) {
+	enum Tone { case error, warn, info
+		var box: (border: Color, bg: Color, fg: Color, head: Color) {
 			switch self {
-			case .problem, .mismatch, .missing: (Color(hex: 0xbe123c), Color(hex: 0xffe4e6))
-			case .warning: (Color(hex: 0x92400e), Color(hex: 0xfef3c7))
-			case .note, .optional: (Color(hex: 0x1d4ed8), Color(hex: 0xdbeafe))
+			case .error: (.rose(200), .rose(50), .rose(900), .rose(700))
+			case .warn: (.amber(200), .amber(50), .amber(900), .amber(700))
+			case .info: (.sky(200), .sky(50), .sky(900), .sky(700))
 			}
-		}
-		var icon: String { switch self { case .problem, .mismatch, .missing: "xmark.octagon"; default: "exclamationmark.triangle" } }
-	}
-
-	func noteBox(_ type: NoteType, _ lines: [(String, (() -> Void)?)], button: (String, Bool, () -> Void)? = nil) -> some View {
-		HStack(alignment: .top, spacing: 10) {
-			Image(systemName: type.icon).font(.system(size: 13)).padding(.top, 2)
-			Text(type.label).font(.system(size: 11, weight: .semibold)).frame(width: 74, alignment: .leading).padding(.top, 3)
-			VStack(alignment: .leading, spacing: 4) {
-				ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
-					if let tap = l.1 { Button(action: tap) { Text(l.0).font(.system(size: 13)).multilineTextAlignment(.leading) }.buttonStyle(.plain) }
-					else { Text(l.0).font(.system(size: 13)) }
-				}
-			}
-			Spacer(minLength: 6)
-			if let b = button {
-				Button(b.0, action: b.2).buttonStyle(.plain).font(.system(size: 12, weight: .medium)).padding(.horizontal, 10).padding(.vertical, 3)
-					.background(.white, in: RoundedRectangle(cornerRadius: 6)).foregroundStyle(b.1 ? Color.ink : Color.muted).disabled(!b.1)
-			}
-		}
-		.foregroundStyle(type.tone.fg).padding(.horizontal, 14).padding(.vertical, 10)
-		.background(type.tone.bg, in: RoundedRectangle(cornerRadius: 10))
-		.overlay(RoundedRectangle(cornerRadius: 10).stroke(type.tone.fg.opacity(0.25)))
-	}
-
-	@ViewBuilder func alerts(_ a: Album) -> some View {
-		// ADR 0054/0039: without a release ID the red Discogs line is the only line shown
-		if a.discogsID.isEmpty {
-			noteBox(.problem, [("No Discogs release ID: search for the release to assign it", nil)], button: ("Search", true, { app.sheet = .discogs }))
-		} else {
-			ForEach(a.issues.filter { $0.level != .error }) { i in
-				switch i.level {
-				case .warn: noteBox(.warning, [(i.text, nil)], button: ("Tag Editor", true, { app.sheet = .tagEditor }))
-				case .ingest: noteBox(.warning, [(i.text, nil)], button: ("Upload", true, { app.chooseArtwork(a, type: .front) }))
-				default: noteBox(.note, [(i.text, nil)])
-				}
-			}
-			if let c = app.mbCheck[a.id] {
-				if !c.mismatches.isEmpty { noteBox(.mismatch, c.mismatches.map { ($0, nil as (() -> Void)?) }, button: ("MusicBrainz", true, { app.sheet = .musicbrainz })) }
-				if !c.notes.isEmpty { noteBox(.note, c.notes.map { ($0, nil as (() -> Void)?) }, button: ("MusicBrainz", true, { app.sheet = .musicbrainz })) }
-			}
-			missingBoxes(a)
 		}
 	}
 
-	@ViewBuilder func missingBoxes(_ a: Album) -> some View {
+	func noteBox<Lines: View>(_ tone: Tone, _ label: String, action: (String, Bool, String, () -> Void)? = nil, @ViewBuilder lines: () -> Lines) -> some View {
+		let c = tone.box
+		return HStack(alignment: .top, spacing: 12) {
+			HStack(spacing: 6) {
+				LucideIcon(icon: tone == .error ? .octagonX : .triangleAlert, size: 14)
+				Text(label.uppercased()).font(.system(size: 12, weight: .medium)).tracking(0.6)
+			}.foregroundStyle(c.head).frame(width: 128, height: 20, alignment: .leading)
+			VStack(alignment: .leading, spacing: 2) { lines() }.font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 1)
+			if let b = action { Button(b.0, action: b.3).buttonStyle(WebButton(kind: .outline, size: .xs)).disabled(!b.1).help(b.2) }
+		}
+		.foregroundStyle(c.fg).padding(.horizontal, 12).padding(.vertical, 6)
+		.background(c.bg, in: RoundedRectangle(cornerRadius: 12))
+		.overlay(RoundedRectangle(cornerRadius: 12).stroke(c.border))
+	}
+
+	@ViewBuilder func notes(_ a: Album) -> some View {
+		let canRun = a.status != .needs && app.job == nil
+		ForEach(a.issues) { i in
+			let tone: Tone = i.level == .error ? .error : i.level == .info ? .info : .warn
+			let act: (String, Bool, String, () -> Void)? = switch i.action {
+			case "search": ("Search", true, "", { app.sheet = .discogs })
+			case "album": ("Tag Editor", true, "", { app.editorTab = 0; app.sheet = .tagEditor })
+			case "tracks": ("Tag Editor", true, "", { app.editorTab = 1; app.sheet = .tagEditor })
+			case "cover": ("Upload", true, "", { app.chooseArtwork(a, type: .front) })
+			default: nil
+			}
+			noteBox(tone, i.level == .error ? "Problem" : i.level == .info ? "Note" : "Warning", action: act) { Text(i.text) }
+		}
+		if let c = app.mbCheck[a.id], !c.mismatches.isEmpty {
+			noteBox(.error, "Mismatch", action: ("MusicBrainz", true, "", { app.sheet = .musicbrainz })) { ForEach(c.mismatches, id: \.self) { Text($0) } }
+		}
 		let req = a.missing.filter { !$0.step.optional }, opt = a.missing.filter(\.step.optional)
-		let can = app.job == nil && a.status != .needs
-		if !req.isEmpty { noteBox(.missing, req.map { m -> (String, (() -> Void)?) in ("\(m.label) on \(m.count == m.of ? "all \(m.of)" : "\(m.count) of \(m.of)") tracks", { focusStep = m.step.rawValue }) }, button: ("Run fixes", can, { app.run(a) })) }
-		if !opt.isEmpty { noteBox(.optional, opt.map { m -> (String, (() -> Void)?) in ("\(m.label) on \(m.count == m.of ? "all \(m.of)" : "\(m.count) of \(m.of)") tracks", { focusStep = m.step.rawValue }) }, button: req.isEmpty ? ("Run fixes", can, { app.run(a) }) : nil) }
+		ForEach([(false, req), (true, opt)], id: \.0) { optional, items in
+			if !items.isEmpty {
+				let holdsRun = optional ? req.isEmpty : true   // Run fixes sits on the first of the two boxes
+				noteBox(optional ? .info : .error, optional ? "Optional" : "Missing", action: holdsRun ? ("Run fixes", canRun, "Run the pipeline for the missing data", { app.run(a) }) : nil) {
+					ForEach(items) { m in
+						Button { stepSel = m.step; tracksOpen = true } label: {
+							(Text(m.label).fontWeight(.medium) + Text(" on \(m.count == m.of ? "all \(m.of) tracks" : "\(m.count) of \(m.of) tracks")")).frame(maxWidth: .infinity, alignment: .leading)
+						}.buttonStyle(UnderlineOnHover()).help("Mark these tracks in the track list")
+					}
+				}
+			}
+		}
+		if let c = app.mbCheck[a.id], !c.notes.isEmpty {
+			noteBox(.info, "Note", action: ("MusicBrainz", true, "", { app.sheet = .musicbrainz })) { ForEach(c.notes, id: \.self) { Text($0) } }
+		}
 	}
+
+	// MARK: folders
 
 	func folderBox(_ a: Album) -> some View {
-		VStack(alignment: .leading, spacing: 8) {
-			row("CURRENT FOLDER", a.name)
-			if app.source == .staging, let first = a.tracks.first, let t = try? LibTemplate.target(app.library.settings.template, first.tags.mapValues { $0.first ?? "" }) { row("NEW FOLDER", t.albumDir.joined(separator: "/")) }
-			let versions = app.library.versions(master: a.masterID, excluding: a.url.path)
-			ForEach(Array(versions.enumerated()), id: \.element.id) { n, v in row(n == 0 ? "IN YOUR LIBRARY" : "", v.album + (v.version.isEmpty ? "" : " " + v.version)) }
+		let current = app.root.map { a.url.path.replacingOccurrences(of: $0.path + "/", with: "") } ?? a.name
+		let newDir = a.tracks.first.flatMap { Naming.blissAlbum($0.tags) }
+		let versions = app.library.versions(master: a.masterID, excluding: a.url.path)
+		func vline(_ album: String, _ version: String) -> String { album + (!version.isEmpty && !album.contains(version) ? " " + version : "") }
+		return VStack(alignment: .leading, spacing: 4) {
+			folderRow("Current folder") { Text(current).font(.system(size: 12, design: .monospaced)) }
+			folderRow("New folder") {
+				if let n = newDir {
+					Text(n).font(.system(size: 12, design: .monospaced))
+					Text(vline(a.tracks.first?.tags.first("ALBUM") ?? a.name, a.version)).font(.system(size: 12))
+				} else { Text("Not ready: artist or album is empty").font(.system(size: 12)).foregroundStyle(Color.slate(400)) }
+			}
+			if !versions.isEmpty {
+				folderRow("In your library") { ForEach(versions) { v in Text(vline(v.album, v.version)).font(.system(size: 12)).help(v.path) } }
+			}
 		}
-		.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-		.background(Color.board.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
-		.overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.08)))
+		.foregroundStyle(Color.slate(800)).textSelection(.enabled)
+		.padding(.horizontal, 12).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+		.background(Color.slate(50), in: RoundedRectangle(cornerRadius: 12))
+		.overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.slate(200)))
 	}
 
-	func row(_ k: String, _ v: String) -> some View {
-		HStack(alignment: .top) {
-			Text(k).font(.system(size: 11, weight: .medium)).foregroundStyle(Color.muted).frame(width: 140, alignment: .leading)
-			Text(v).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-			Spacer(minLength: 0)
+	func folderRow<V: View>(_ label: String, @ViewBuilder _ v: () -> V) -> some View {
+		HStack(alignment: .firstTextBaseline, spacing: 12) {
+			Text(label.uppercased()).font(.system(size: 12, weight: .medium)).tracking(0.6).foregroundStyle(Color.slate(500)).frame(width: 128, alignment: .leading)
+			VStack(alignment: .leading, spacing: 2) { v() }.frame(maxWidth: .infinity, alignment: .leading)
 		}
 	}
 
 	// MARK: pipeline
 
 	func pipeline(_ a: Album) -> some View {
-		VStack(alignment: .leading, spacing: 10) {
-			Text("PIPELINE").font(.system(size: 11, weight: .medium)).foregroundStyle(Color.muted)
-			HStack(alignment: .top, spacing: 0) {
-				ForEach(StepID.allCases) { s in
-					let st = a.state(s)
-					Button { } label: {
-						VStack(spacing: 6) {
-							ZStack(alignment: .bottomTrailing) {
-								Circle().fill(app.runningStep == s ? Color.info.opacity(0.15) : st == .done ? Color.ok : st == .partial ? Color.warn : .white)
-									.overlay(Circle().stroke(st == .open ? Color.muted.opacity(0.3) : .clear, style: StrokeStyle(lineWidth: 1, dash: s.optional ? [3] : [])))
-									.frame(width: 36, height: 36)
-								if app.runningStep == s { ProgressView().controlSize(.small).frame(width: 36, height: 36) }
-								else { Image(systemName: s.icon).font(.system(size: 15)).foregroundStyle(st == .open ? Color.muted.opacity(0.6) : .white).frame(width: 36, height: 36) }
-								if st != .open {
-									Image(systemName: st == .done ? "checkmark" : "exclamationmark").font(.system(size: 7, weight: .bold)).foregroundStyle(.white)
-										.frame(width: 13, height: 13).background(st == .done ? Color(hex: 0x047857) : Color(hex: 0xb45309), in: Circle())
-								}
-							}
-							Text(s.label).font(.system(size: 11)).foregroundStyle(Color.ink.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.8)
-						}.frame(maxWidth: .infinity)
-					}.buttonStyle(.plain)
-					.simultaneousGesture(TapGesture(count: 2).onEnded { if app.job == nil { app.run(a, steps: [s]) } })
-					.simultaneousGesture(TapGesture().onEnded { focusStep = focusStep == s.rawValue ? nil : s.rawValue })
-					.help("\(s.label): double-click to run only this step.")
-				}
+		VStack(alignment: .leading, spacing: 8) {
+			Text("PIPELINE").font(.system(size: 12, weight: .medium)).tracking(0.6).foregroundStyle(Color.slate(500))
+			HStack(alignment: .top, spacing: 4) {
+				ForEach(StepID.allCases) { s in StepCircle(album: a, step: s, selected: stepSel == s) {
+					stepSel = stepSel == s ? nil : s; tracksOpen = true
+				} run: {
+					if (a.status != .needs || [.dr, .replaygain, .fingerprints].contains(s)) && app.job == nil { app.run(a, steps: [s]) }
+				} }
 			}
-			.background(alignment: .top) { Rectangle().fill(Color.black.opacity(0.08)).frame(height: 2).padding(.horizontal, 40).padding(.top, 17) }
 		}
 	}
 
 	// MARK: tracks
 
 	func tracks(_ a: Album) -> some View {
-		let missing = focusStep.flatMap { StepID(rawValue: $0) }.map { Set(a.missingTracks($0).map(\.id)) }
-		return VStack(alignment: .leading, spacing: 4) {
-			HStack { Text("Tracks").font(.system(size: 14, weight: .semibold)); Pill(text: "\(a.tracks.count)", bg: .white) }.padding(.bottom, 6)
-			ForEach(a.tracks) { t in
-				HStack(spacing: 8) {
-					Button { app.play(t) } label: {
-						LucideIcon(icon: app.playing == t.id && !app.paused ? .pause : .play, size: 14)
-					}
-						.buttonStyle(IconButton()).help(app.playing == t.id && !app.paused ? "Pause" : "Play")
-					Text(t.number.isEmpty ? "" : String(format: "%02d", Int(t.number) ?? 0)).font(.system(size: 12)).foregroundStyle(Color.muted).frame(width: 22, alignment: .leading)
-					Text(t.title).font(.system(size: 13)).lineLimit(1)
-					Spacer(minLength: 4)
-					if let m = missing { Image(systemName: m.contains(t.id) ? "xmark" : "checkmark").foregroundStyle(m.contains(t.id) ? Color.bad : Color.ok).font(.system(size: 12, weight: .bold)) }
-					Text(Self.mmss(t.info.duration)).font(.system(size: 12)).foregroundStyle(Color.muted).monospacedDigit().frame(width: 38, alignment: .trailing)
-					Pill(text: t.channelsLabel, fg: Color.ink.opacity(0.7), bg: Color(hex: 0xe5e7eb))
-					Pill(text: t.formatLabel, fg: Color(hex: 0x334155), bg: .white, border: true).monospacedDigit().frame(width: 72).help(t.formatHelp)
-					if !t.dr.isEmpty { DRBadge(value: t.dr) } else { Pill(text: "---", fg: Color.muted, bg: Color(hex: 0xe5e7eb)) }
-					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { lyricBadge(t) }.buttonStyle(.plain)
-					Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { LucideIcon(icon: .pencil, size: 14) }.buttonStyle(IconButton()).help("Edit lyrics")
-				}
-				.padding(.vertical, 4).padding(.leading, 8)   // room for the playing marker left of the button
-				.background(app.playing == t.id ? Color(hex: 0xfef9c3) : .clear)
-				.overlay(alignment: .leading) { if app.playing == t.id { Rectangle().fill(Color.warn).frame(width: 3) } }
-				Divider().opacity(0.5)
+		Collapsible(open: $tracksOpen) {
+			HStack(spacing: 8) {
+				Text("Tracks")
+				Pill(text: "\(a.tracks.count)", bg: .white)
+				if let s = stepSel { Text(s.label).font(.system(size: 12)).foregroundStyle(Color.sky(700)) }
 			}
+		} content: {
+			let fails = stepSel.map { Set(a.missingTracks($0).map(\.id)) }
+			ScrollView {
+				VStack(spacing: 0) {
+					ForEach(Array(a.tracks.enumerated()), id: \.element.id) { i, t in
+						trackRow(t, fails: fails, last: i == a.tracks.count - 1)
+					}
+				}
+			}.frame(maxHeight: 320).fixedSize(horizontal: false, vertical: a.tracks.count < 9)
 		}
-		.padding(16).background(Color.board.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
 	}
 
-	@ViewBuilder func lyricBadge(_ t: Track) -> some View {
-		switch t.lyricsKind {
-		case .lrc: Pill(text: "LRC", fg: .white, bg: .ok)
-		case .txt: Pill(text: "TXT", fg: .black, bg: .warn)
-		case .instr: Pill(text: "INS", fg: .white, bg: .info)
-		case .none: Pill(text: "---", fg: .white, bg: .bad)
+	func trackRow(_ t: Track, fails: Set<String>?, last: Bool) -> some View {
+		let playing = app.playing == t.id
+		return HStack(spacing: 8) {
+			Button { app.play(t) } label: { LucideIcon(icon: playing ? .pause : .play, size: 12) }.buttonStyle(IconButton()).help("Play")
+			Text(t.number.isEmpty ? "" : String(format: "%02d", Int(t.number) ?? 0)).monospacedDigit().foregroundStyle(Color.slate(400)).frame(width: 24, alignment: .leading)
+			Text(t.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).help(t.url.lastPathComponent)
+			Text(Self.mmss(t.info.duration)).monospacedDigit().foregroundStyle(Color.slate(500)).frame(width: 40, alignment: .trailing)
+			ChannelBadge(n: t.info.channels)
+			if let f = fails, let s = stepSel {
+				if f.contains(t.id) { Text("✗").fontWeight(.semibold).foregroundStyle(Color.rose(600)) }
+				else { Text("✓").fontWeight(.semibold).foregroundStyle(t.lyricsKind == .txt && s == .lyrics ? Color.amber(500) : .emerald(600)) }
+			}
+			Pill(text: t.formatLabel, fg: .slate(700), bg: .white, border: true, width: 72).monospacedDigit().help(t.formatHelp)
+			Pill(text: t.dr.isEmpty ? "DR —" : "DR\(t.dr)", fg: t.dr.isEmpty ? .slate(500) : .emerald(800), bg: t.dr.isEmpty ? .slate(200) : .emerald(100), width: 48)
+			LyricsBadge(kind: t.lyricsKind)
+			Button { app.lyricsTrack = t.id; app.sheet = .lyrics } label: { LucideIcon(icon: .pencil, size: 12) }.buttonStyle(IconButton()).help("Edit lyrics")
 		}
+		.font(.system(size: 13)).padding(.vertical, 6).padding(.leading, 4)
+		.background(playing ? Color.yellow(50) : .clear)
+		.overlay(alignment: .leading) { Rectangle().fill(playing ? Color.yellow(400) : .clear).frame(width: 4) }
+		.overlay(alignment: .bottom) { if !last { Rectangle().fill(Color.slate(200)).frame(height: 1) } }
 	}
 
-	static func mmss(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
+	static func mmss(_ s: Double) -> String { s > 0 ? String(format: "%d:%02d", Int(s.rounded()) / 60, Int(s.rounded()) % 60) : "" }
+
+	// MARK: log
 
 	var logBox: some View {
-		DisclosureGroup(isExpanded: $logOpen) {
-			ScrollView {
-				Text(app.logLines.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-			}.frame(height: 160)
-		} label: { Text("Log").font(.system(size: 14, weight: .semibold)) }
-		.padding(16).background(Color.board.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
-		.onChange(of: app.job) { _, j in if j != nil { logOpen = true } }
+		Collapsible(open: $logOpen) { Text("Log") } content: {
+			ScrollViewReader { r in
+				ScrollView {
+					VStack(alignment: .leading, spacing: 0) {
+						if app.logLines.isEmpty { (Text("—").foregroundStyle(Color.slate(500)) + Text("   No runs yet")) }
+						ForEach(Array(app.logLines.suffix(300).enumerated()), id: \.offset) { i, l in
+							(Text(l.t).foregroundStyle(Color.slate(500)) + Text("   " + l.m))
+								.foregroundStyle(l.k == "ok" ? Color.emerald(400) : Color.slate(200)).opacity(l.k == "file" ? 0.6 : 1).id(i)
+						}
+					}.font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.slate(200)).textSelection(.enabled)
+					.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+				}
+				.frame(maxHeight: 288).fixedSize(horizontal: false, vertical: app.logLines.count < 20)
+				.background(Color.slate(900), in: RoundedRectangle(cornerRadius: 8))
+				.onChange(of: app.logLines.count) { r.scrollTo(min(app.logLines.count, 300) - 1) }
+			}
+		}
 	}
 }
 
+/// `hover:underline` for the lines of the Missing box.
+struct UnderlineOnHover: ButtonStyle {
+	func makeBody(configuration c: Configuration) -> some View { B(c: c) }
+	struct B: View {
+		let c: Configuration
+		@State private var over = false
+		var body: some View { c.label.underline(over).contentShape(Rectangle()).onHover { over = $0 } }
+	}
+}
+
+/// shadcn Collapsible as the inspector uses it: rounded-xl slate-100 box, 13 pt trigger with a chevron.
+struct Collapsible<Label: View, Content: View>: View {
+	@Binding var open: Bool
+	@ViewBuilder var label: Label
+	@ViewBuilder var content: Content
+	var body: some View {
+		VStack(alignment: .leading, spacing: 0) {
+			Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
+				HStack(spacing: 8) { label; Spacer(); LucideIcon(icon: .chevronDown, size: 16).rotationEffect(.degrees(open ? 180 : 0)) }
+					.font(.system(size: 13, weight: .medium)).padding(.horizontal, 16).padding(.vertical, 12).contentShape(Rectangle())
+			}.buttonStyle(.plain)
+			if open { content.padding(.horizontal, 16).padding(.bottom, 12) }
+		}
+		.background(Color.slate(100), in: RoundedRectangle(cornerRadius: 12))
+	}
+}
+
+/// One step of the pipeline row (inspector.tsx): icon circle, state badge, label; click marks the tracks,
+/// double-click runs only this step.
+struct StepCircle: View {
+	@EnvironmentObject var app: AppState
+	var album: Album
+	var step: StepID
+	var selected: Bool
+	var select: () -> Void
+	var run: () -> Void
+	var body: some View {
+		let st = album.state(step)
+		let busy = (app.runningStep == step && app.job == "Fixing \(album.title)") || (app.working[album.id]?.contains(step) ?? false)
+		let note = step == .tags && album.coverTooSmall ? (album.issues.first { $0.action == "cover" }?.text ?? "") + " " : ""
+		VStack(spacing: 4) {
+			ZStack(alignment: .bottomTrailing) {
+				ZStack {
+					Circle().fill(busy ? Color.sky(500) : st == .done ? .emerald(500) : st == .partial ? .amber(400) : .white)
+					if st == .open && !busy { Circle().stroke(Color.slate(200), style: StrokeStyle(lineWidth: 1, dash: step.optional ? [3, 2] : [])) }
+					if busy { Circle().stroke(Color.sky(300), lineWidth: 2).padding(-2) }
+					Group {
+						if busy { Spinner(icon: .refreshCw, size: 18) } else { LucideIcon(icon: step.lucide, size: 18) }
+					}.foregroundStyle(busy || st == .done ? .white : st == .partial ? Color.amber(950) : Color.slate(400))
+				}.frame(width: 36, height: 36)
+				if !busy && st != .open {
+					LucideIcon(icon: st == .partial ? .triangleAlert : .check, size: 10).foregroundStyle(.white)
+						.frame(width: 15, height: 15).background(st == .partial ? Color.amber(700) : .emerald(700), in: Circle())
+						.overlay(Circle().stroke(.white, lineWidth: 1.5)).offset(x: 2, y: 2)
+				}
+			}
+			Text(step.label).font(.system(size: 11, weight: selected ? .medium : .regular)).lineLimit(1).minimumScaleFactor(0.8)
+				.padding(.horizontal, 4).background(selected ? Color.slate(800).opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
+		}
+		.frame(maxWidth: .infinity)
+		.background(alignment: .top) {
+			if step != .dr { Rectangle().fill(Color.slate(200)).frame(height: 2).offset(x: -40, y: 17).frame(maxWidth: .infinity).zIndex(-1) }
+		}
+		.contentShape(Rectangle())
+		.onTapGesture(count: 2) { run() }
+		.onTapGesture { select() }
+		.pointer()
+		.help(note + "Double-click to run only this step.")
+	}
+}
+
+extension StepID {
+	var lucide: Lucide { [.chartColumn, .volume2, .fingerprint, .tags, .mic, .fileText][rawValue] }
+}
+
+/// One of the four artwork fields (inspector.tsx CoverField, ADR 0090). Front is single; the others are small
+/// carousels. Drop replaces the shown image; double-click shows it full size.
 struct ArtworkField: View {
 	@EnvironmentObject var app: AppState
 	var album: Album
 	var type: ArtType
+	@State private var at = 0
 	@State private var targeted = false
 
 	var body: some View {
-		let imgs = album.artwork[type.rawValue] ?? []
-		let warn = type == .front && album.coverTooSmall
-		VStack(alignment: .leading, spacing: 6) {
+		let items = album.artwork[type.rawValue] ?? []
+		let multiple = type != .front
+		let i = items.isEmpty ? 0 : min(at, items.count - 1)
+		let current = items.isEmpty ? nil : items[i]
+		let fallback = type == .front && items.isEmpty && album.cover?.embedded == false ? album.cover : nil
+		let warn = type == .front ? album.issues.first { $0.action == "cover" }?.text : nil
+		let busy = app.coverBusy == album.id
+		VStack(alignment: .leading, spacing: 4) {
 			HStack(spacing: 4) {
-				Text(type.label).font(.system(size: 11, weight: .medium)).lineLimit(1)
-				if type == .front, let c = imgs.first { Text(verbatim: "\(c.width)×\(c.height)").font(.system(size: 9)).foregroundStyle(Color.muted).lineLimit(1) }
-				Spacer(minLength: 0)
+				Text(type == .front ? "Front Cover" : type.label).font(.system(size: 12, weight: .medium)).foregroundStyle(Color.slate(700)).lineLimit(1)
+				if warn != nil { LucideIcon(icon: .triangleAlert, size: 12).foregroundStyle(Color.amber(700)) }
+				Spacer(minLength: 2)
+				if let c = current ?? fallback {
+					Text(verbatim: "\(c.width)×\(c.height)").font(.system(size: 10)).monospacedDigit().foregroundStyle(Color.slate(500)).lineLimit(1)
+						.help(current.map { "\($0.width)×\($0.height), \(Self.bytes($0.data.count))" } ?? "")
+				}
+				if multiple && !items.isEmpty { Text("\(i + 1)/\(items.count)").font(.system(size: 11)).monospacedDigit().foregroundStyle(Color.slate(500)) }
 			}
 			ZStack {
-				RoundedRectangle(cornerRadius: 8).fill(targeted ? Color.info.opacity(0.12) : Color.board.opacity(0.6))
-				if imgs.isEmpty {
-					Text("Drop image or click Upload").font(.system(size: 10)).multilineTextAlignment(.center).foregroundStyle(Color.muted.opacity(0.7)).padding(8)
+				Color.white.opacity(0.7)
+				if let c = current ?? fallback, let img = app.thumbnail(c, size: 400) {
+					Color.clear.overlay { Image(nsImage: img).resizable().scaledToFill() }.clipped().opacity(current == nil ? 0.7 : 1)
+						.onTapGesture(count: 2) { app.fullCover = c }
+						.help(current.map { "\($0.width)×\($0.height), \(Self.bytes($0.data.count)) — double-click to view full size" } ?? "Double-click to view full size")
 				} else {
-					ScrollView(.vertical, showsIndicators: false) {
-						VStack(spacing: 4) {
-							ForEach(imgs) { c in
-								ZStack(alignment: .topTrailing) {
-									if let img = app.thumbnail(c, size: 400) { Image(nsImage: img).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 4)) }
-									Button { app.removeArtwork(album, type: type, data: c.data) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white, Color.bad) }.buttonStyle(.plain).padding(3).help("Delete")
-								}
-								.onTapGesture { app.fullCover = c; app.sheet = .cover }
-							}
-						}.padding(4)
+					Text("Drop image or click Upload").font(.system(size: 11)).multilineTextAlignment(.center).foregroundStyle(Color.slate(400)).padding(4)
+				}
+				if busy { Color.white.opacity(0.7); Spinner(icon: .loader2, size: 20).foregroundStyle(Color.slate(700)) }
+			}
+			.aspectRatio(1, contentMode: .fit)
+			.clipShape(RoundedRectangle(cornerRadius: 8))
+			HStack(spacing: 2) {
+				if multiple {
+					small("‹", .slate(600), disabled: items.count < 2, help: "Previous image") { at = (i - 1 + items.count) % items.count }
+					small("›", .slate(600), disabled: items.count < 2, help: "Next image") { at = (i + 1) % items.count }
+				}
+				if current == nil && fallback == nil { small("Upload", .slate(700)) { app.chooseArtwork(album, type: type) } }
+				if current != nil || fallback != nil {
+					small("Delete", .rose(600), hover: .rose(50)) {
+						if type == .front { app.sheet = .coverDelete } else if let c = current { app.removeArtwork(album, type: type, data: c.data) }
 					}
 				}
+				if multiple { small("+", .slate(700), help: "Add an image") { app.chooseArtwork(album, type: type) } }
+				if type == .front {
+					Spacer(minLength: 0)
+					Menu {
+						Button { app.chooseArtwork(album, type: .front) } label: { Label { Text("Upload image") } icon: { Image(nsImage: Lucide.upload.image) } }
+						Button { app.pasteCover(album) } label: { Label { Text("Paste image") } icon: { Image(nsImage: Lucide.clipboardPaste.image) } }
+						Button { open("https://covers.musichoarders.xyz/?" + Self.query(["artist": album.artist, "album": album.title])) } label: { Label { Text("Search musichoarders") } icon: { Image(nsImage: Asset.musichoarders.image) } }
+						Button { open("https://albumartexchange.com/covers?" + Self.query(["q": [album.artist, album.title].filter { !$0.isEmpty }.joined(separator: " "), "fltr": "ALL", "sort": "SCORE", "status": "", "size": "any"])) } label: { Label { Text("Search albumartexchange") } icon: { Image(nsImage: Asset.albumartexchange.image) } }
+						Divider()
+						Button(role: .destructive) { app.sheet = .coverDelete } label: { Label { Text("Remove cover") } icon: { Image(nsImage: Lucide.trash2.image) } }
+					} label: { LucideIcon(icon: .ellipsis, size: 14).foregroundStyle(Color.slate(500)) }
+						.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Cover options")
+				}
 			}
-			.frame(height: 124)
-			.overlay(RoundedRectangle(cornerRadius: 8).stroke(warn ? Color.warn : (targeted ? Color.info : Color.black.opacity(0.08)), lineWidth: warn ? 2 : 1))
-			.onDrop(of: ["public.file-url", "public.image"], isTargeted: $targeted) { app.dropCover(album, providers: $0, type: type) }
-			HStack(spacing: 8) {
-				Button("Upload") { app.chooseArtwork(album, type: type) }
-				Button { app.pasteCover(album, type: type) } label: { Image(systemName: "doc.on.clipboard") }.help("Paste image from the clipboard")
-			}.buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(Color.muted)
 		}
-		.frame(maxWidth: .infinity)
-		.padding(8).background(.white, in: RoundedRectangle(cornerRadius: 10))
-		.overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.08)))
+		.padding(8)
+		.frame(minHeight: 144, alignment: .top)
+		.background(warn != nil ? Color.amber(50) : Color.slate(50), in: RoundedRectangle(cornerRadius: 12))
+		.overlay(RoundedRectangle(cornerRadius: 12).stroke(targeted ? Color.slate(800) : warn != nil ? Color.amber(400) : Color.slate(200), lineWidth: targeted ? 4 : 1))
+		.help(warn ?? "")
+		.onDrop(of: ["public.file-url", "public.image"], isTargeted: $targeted) { app.dropCover(album, providers: $0, type: type, replacing: current?.data) }
+	}
+
+	func small(_ t: String, _ c: Color, hover: Color = .white, disabled: Bool = false, help: String = "", _ action: @escaping () -> Void) -> some View {
+		Button(t, action: action).buttonStyle(TinyButton(color: c, hover: hover)).disabled(disabled).help(help)
+	}
+	func open(_ s: String) { if let u = URL(string: s) { NSWorkspace.shared.open(u) } }
+	static func query(_ q: [String: String]) -> String {
+		var c = URLComponents(); c.queryItems = q.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }; return c.percentEncodedQuery ?? ""
+	}
+	static func bytes(_ n: Int) -> String { n >= 1_048_576 ? String(format: "%.1f MB", Double(n) / 1_048_576) : n >= 1024 ? "\(Int((Double(n) / 1024).rounded())) KB" : "\(n) B" }
+}
+
+/// The artwork fields' footer buttons: `rounded px-1.5 text-[11px] hover:bg-white`.
+struct TinyButton: ButtonStyle {
+	var color: Color
+	var hover: Color = .white
+	func makeBody(configuration c: Configuration) -> some View { B(c: c, s: self) }
+	struct B: View {
+		let c: Configuration, s: TinyButton
+		@State private var over = false
+		@Environment(\.isEnabled) private var enabled
+		var body: some View {
+			c.label.font(.system(size: 11)).foregroundStyle(s.color).padding(.horizontal, 6).padding(.vertical, 1)
+				.background(over && enabled ? s.hover : .clear, in: RoundedRectangle(cornerRadius: 4))
+				.opacity(enabled ? 1 : 0.3).onHover { over = $0 }.contentShape(Rectangle())
+		}
 	}
 }

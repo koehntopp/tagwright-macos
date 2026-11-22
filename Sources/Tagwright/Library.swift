@@ -38,6 +38,7 @@ struct LibraryStatus {
 
 	private let index: LibIndex
 	private var root: URL?
+	var rootPath: String { root?.path ?? "" }
 	private var loop: Task<Void, Never>?
 	private var wake: CheckedContinuation<Void, Never>?
 	private var fullRequested = true

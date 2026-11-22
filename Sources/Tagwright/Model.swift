@@ -71,9 +71,10 @@ enum LyricsKind { case lrc, txt, instr, none }
 
 struct Issue: Identifiable {
 	enum Level { case error, warn, ingest, info }
-	var id = UUID()
+	var id: String { text }
 	var level: Level
 	var text: String
+	var action = ""   // search, album, tracks, cover: which button the note offers (app.py album_issues)
 }
 
 struct Missing: Identifiable {
@@ -139,6 +140,10 @@ struct Album: Identifiable {
 	var title: String { first("ALBUM").isEmpty ? name : first("ALBUM") }
 	var year: String { String((first("ALBUM_RELEASE_YEAR", "RELEASEDATE", "DATE", "YEAR")).prefix(4)) }
 	var edition: String { first("ALBUM_EDITION") }
+	/// web `year` (DATE / YEAR) for the card and the inspector; `year` above is the release year of the list view.
+	var dateYear: String { String(first("DATE", "YEAR").prefix(4)) }
+	/// web `edition`: the card's third line, VERSION · CATALOGNUMBER.
+	var editionLine: String { [first("VERSION"), first("CATALOGNUMBER")].filter { !$0.isEmpty }.joined(separator: " · ") }
 	var masterYear: String { String(first("ALBUM_MASTER_YEAR", "ORIGINAL YEAR", "ORIGINALDATE").prefix(4)) }
 	var format: String { first("ALBUM_FORMAT") }
 	var catalog: String { first("CATALOGNUMBER", "CATALOG NUMBER", "CATALOGNUM", "LABELNO") }
@@ -162,7 +167,7 @@ struct Album: Identifiable {
 	var instr: Int { tracks.filter { $0.lyricsKind == .instr }.count }
 	var duration: Double { tracks.reduce(0) { $0 + $1.info.duration } }
 
-	var coverTooSmall: Bool { cover == nil || min(cover!.width, cover!.height) < minCover }
+	var coverTooSmall: Bool { minCover > 0 && (cover == nil || cover!.width < minCover || cover!.height < minCover) }   // 0 turns the check off
 
 	// MARK: steps
 
@@ -201,24 +206,60 @@ struct Album: Identifiable {
 	var states: [StepState] { StepID.allCases.map(state) }
 	var doneCount: Int { states.filter { $0 != .open }.count }
 
+	/// app.py album_issues: one line each, recomputed from the tags. Without a Discogs release ID that is the only
+	/// line (ADR 0039); errors first.
 	var issues: [Issue] {
+		let n = tracks.count
+		let t0 = tracks.first?.tags ?? [:]
+		if t0.first("DISCOGS_RELEASE_ID").isEmpty { return [Issue(level: .error, text: "Add a Discogs release ID before running fixes.", action: "search")] }
 		var out: [Issue] = []
-		if discogsID.isEmpty { out.append(Issue(level: .error, text: "No Discogs release ID: search for the release to assign it")) }
-		for tag in ["ALBUMARTIST", "ALBUM", "ALBUM_FORMAT", "CATALOGNUMBER", "DATE", "TITLE", "TRACKNUMBER", "DISCNUMBER"] {
-			let keys = tag == "CATALOGNUMBER" ? ["CATALOGNUMBER", "CATALOG NUMBER", "CATALOGNUM", "LABELNO"] : tag == "DATE" ? ["DATE", "YEAR"] : [tag]
-			let empty = tracks.filter { t in keys.allSatisfy { t.tags.first($0).isEmpty } }
-			if !empty.isEmpty { out.append(Issue(level: .warn, text: "\(tag) is empty on \(empty.count) of \(tracks.count) tracks")) }
+		let level: [(label: String, keys: [String], action: String, required: Bool)] = [
+			("Discogs release ID", ["DISCOGS_RELEASE_ID"], "search", true),
+			("album artist", ["ALBUMARTIST"], "album", true),
+			("catalog number", ["CATALOGNUMBER", "CATALOG NUMBER", "CATALOGNUM", "LABELNO"], "album", true),
+			("album format", ["ALBUM_FORMAT"], "album", true),
+			("edition", ["ALBUM_EDITION"], "album", false),
+			("MusicBrainz release ID", ["MUSICBRAINZ_ALBUMID", "MUSICBRAINZ ALBUM ID"], "album", false),
+			("album artist override", ["ALBUM_ARTIST_OVERRIDE"], "album", false),
+			("album title override", ["ALBUM_TITLE_OVERRIDE"], "album", false),
+		]
+		let missingText = ["album artist": "Set the album artist.", "catalog number": "Add a catalog number (enter 'none' if the release has none).", "album format": "Set the album format (for example CD, SACD, Vinyl)."]
+		for l in level {
+			let values = tracks.map { t in l.keys.lazy.map { t.tags.first($0) }.first { !$0.isEmpty } ?? "" }
+			let m = values.filter(\.isEmpty).count
+			let lv: Issue.Level = l.label == "Discogs release ID" ? .error : .warn
+			if l.required, m > 0, !(l.label == "Discogs release ID" && m == n) {
+				out.append(Issue(level: lv, text: m == n ? (missingText[l.label] ?? "No track has a \(l.label).") : "\(m) of \(n) tracks have no \(l.label).", action: l.action))
+			}
+			let filled = values.filter { !$0.isEmpty }
+			if Set(filled).count > 1 {
+				out.append(Issue(level: lv, text: "The files disagree on the \(l.label) (\(Set(filled).count) different values); it is read from the first file only.", action: l.action))
+			} else if !l.required, !filled.isEmpty, filled.count < n {
+				out.append(Issue(level: .warn, text: "The \(l.label) is set on only \(filled.count) of \(n) tracks; it is read from the first file only.", action: l.action))
+			}
 		}
-		for tag in ["ALBUMARTIST", "ALBUM", "ALBUM_FORMAT"] {
-			let vals = Set(all(tag).filter { !$0.isEmpty })
-			if vals.count > 1 { out.append(Issue(level: .warn, text: "Files disagree on \(tag): \(vals.sorted().joined(separator: " / "))")) }
+		for (key, what) in [("DISCNUMBER", "a disc number"), ("TRACKNUMBER", "a track number"), ("TITLE", "a title"), ("ARTIST", "an artist")] {
+			let m = tracks.filter { $0.tags.first(key).isEmpty }.count
+			if m > 0 { out.append(Issue(level: .warn, text: Self.countText(m, n, what), action: "tracks")) }
 		}
+		let numbers = tracks.compactMap { t -> String? in
+			let d = t.tags.first("DISCNUMBER"), k = t.tags.first("TRACKNUMBER")
+			return d.isEmpty || k.isEmpty ? nil : "\(d.split(separator: "/").first ?? "")|\(k.split(separator: "/").first ?? "")"
+		}
+		let dup = Dictionary(grouping: numbers, by: { $0 }).values.filter { $0.count > 1 }.count
+		if dup > 0 { out.append(Issue(level: .warn, text: "\(dup) disc/track number\(dup == 1 ? " is" : "s are") used by more than one file.", action: "tracks")) }
 		if coverTooSmall {
-			out.append(Issue(level: .ingest, text: cover == nil ? "No cover: cannot move to the library" : "Cover is \(cover!.width)x\(cover!.height), below the minimum \(minCover) px: cannot move to the library"))
+			out.append(Issue(level: .ingest, text: cover.map { "Cover is \($0.width)x\($0.height), below the minimum \(minCover)x\(minCover)." } ?? "The album has no cover.", action: "cover"))
 		}
-		return out.sorted { rank($0.level) < rank($1.level) }
+		return out.filter { $0.level == .error } + out.filter { $0.level != .error }
 	}
-	private func rank(_ l: Issue.Level) -> Int { switch l { case .error: 0; case .warn: 1; case .ingest: 2; case .info: 3 } }
+
+	static func countText(_ m: Int, _ n: Int, _ what: String) -> String {
+		let noun = what.split(separator: " ", maxSplits: 1).last.map(String.init) ?? what
+		if m == n { return n > 1 ? "No track has \(what)." : "The track has no \(noun)." }
+		return "\(m) of \(n) tracks \(m == 1 ? "has" : "have") no \(noun)."
+	}
+
 
 	var status: Status {
 		if issues.contains(where: { $0.level == .error || $0.level == .warn }) { return .needs }

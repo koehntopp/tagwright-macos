@@ -19,4 +19,6 @@ Build: `./build-app.sh` -> `build/Tagwright.app`. Tests: `DEVELOPER_DIR=/Applica
 
 Steps run in process: dynamic range (TT DR), ReplayGain 2.0 (EBU R128, -18 LUFS), lyrics (LRCLIB), filenames. Fingerprints (Chromaprint algorithm 2) are computed natively: no external tools.
 
+UI: dialogs, cards, inspector and list view follow `../tagwright/ui/components` (Tailwind/shadcn look rebuilt in `Theme.swift`); lucide icons and the web's static images are generated into `Assets.swift` by `node scripts/gen-assets.mjs Sources/Tagwright/Assets.swift`.
+
 What is still missing compared with the web app: see `GAPS.md`.

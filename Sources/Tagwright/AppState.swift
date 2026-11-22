@@ -6,7 +6,11 @@ enum Filter: String, CaseIterable { case all, needs, ready, fixed
 	var label: String { ["All albums", "Needs input", "Incomplete", "Fixed"][Filter.allCases.firstIndex(of: self)!] }
 }
 enum SortKey: String, CaseIterable { case newest = "Newest", title = "Title", artist = "Artist", status = "Status" }
-enum Source { case staging, library }
+enum Source: String { case staging, library }
+enum JobState { case idle, running, failed, stopped }
+struct LogLine { var t: String; var m: String; var k: String }   // time, text, kind: ok (green), file (dimmed)
+enum ToastKind { case plain, success, error, warning, info }
+struct Toast: Equatable { var text: String; var kind: ToastKind }
 
 @MainActor
 final class AppState: ObservableObject {
@@ -17,7 +21,7 @@ final class AppState: ObservableObject {
 	@AppStorage("deleteAfterMove") var deleteAfterMove = false
 	@AppStorage("listView") var listView = false
 
-	@Published var source = Source.staging
+	@AppStorage("source") var source = Source.staging   // remembered, as the web app does (localStorage)
 	@Published var albums: [Album] = []
 	@Published var scanning = false
 	@Published var filter = Filter.all
@@ -25,14 +29,19 @@ final class AppState: ObservableObject {
 	@Published var search = ""
 	@Published var selection: String? { didSet { if let a = selected, !a.full { refresh(a) } } }
 	@Published var job: String?
-	@Published var logLines: [String] = []
+	@Published var logLines: [LogLine] = []
 	@Published var runningStep: StepID?
-	@Published var toast: String?
+	@Published var toast: Toast?
+	@Published var jobState = JobState.idle
+	@Published var working: [String: Set<StepID>] = [:]
+	@Published var coverBusy: String?
+	@Published var dialogError: String?   // shown in the open dialog (a failed move)   // steps a save is rewriting (tag editor), not a pipeline job
 	@Published var playing: String?
-	@Published var paused = false
 	@Published var sheet: Sheet?
 	@Published var fullCover: Cover?
 	@Published var lyricsTrack: String?
+	@Published var editorTab = 0   // the tag editor opens on this tab (Album 0, Tracks 1)
+	@Published var tableSort: (key: String, asc: Bool)? = nil   // list view column sort; a filter click resets it
 	@Published var mbCheck: [String: MBCheck] = [:]
 	@Published var leftover: Leftover?
 
@@ -40,7 +49,7 @@ final class AppState: ObservableObject {
 	struct Leftover { var folder: URL; var items: [(name: String, size: Int64, dir: Bool)] }
 
 	enum Sheet: Identifiable {
-		case settings, tagEditor, discogs, musicbrainz, move, cover, lyrics, leftover, library
+		case settings, tagEditor, discogs, musicbrainz, move, lyrics, leftover, library, albumEdit, coverDelete
 		var id: Int { hashValue }
 	}
 
@@ -70,12 +79,15 @@ final class AppState: ObservableObject {
 	var shown: [Album] {
 		var a = albums.filter { filter == .all || $0.status.rawValue == filter.rawValue }
 		let q = search.lowercased()
-		if !q.isEmpty { a = a.filter { [$0.artist, $0.title, $0.discogsID, $0.mbid, $0.catalog, $0.name].contains { $0.lowercased().contains(q) } } }
+		if !q.isEmpty { a = a.filter { [$0.name, $0.title, $0.artist, $0.discogsID, $0.mbid].contains { $0.lowercased().contains(q) } } }
+		if listView, let t = tableSort { return a.sorted { AlbumColumn.less(t.key, t.asc, $0, $1) } }
+		let order: [Status: Int] = [.needs: 0, .ready: 1, .fixed: 2]
+		func byTitle(_ x: Album, _ y: Album) -> Bool { x.title.localizedCompare(y.title) == .orderedAscending }
 		switch sort {
 		case .newest: a.sort { (mtimes[$0.id] ?? .distantPast) > (mtimes[$1.id] ?? .distantPast) }
-		case .title: a.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-		case .artist: a.sort { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
-		case .status: a.sort { $0.status.rawValue < $1.status.rawValue }
+		case .title: a.sort(by: byTitle)
+		case .artist: a.sort { let c = $0.artist.localizedCompare($1.artist); return c == .orderedSame ? byTitle($0, $1) : c == .orderedAscending }
+		case .status: a.sort { order[$0.status]! == order[$1.status]! ? byTitle($0, $1) : order[$0.status]! < order[$1.status]! }
 		}
 		return a
 	}
@@ -86,9 +98,10 @@ final class AppState: ObservableObject {
 		notify("Sorted by \(sort.rawValue)")
 	}
 
-	func notify(_ s: String) {
-		toast = s
-		Task { try? await Task.sleep(for: .seconds(3)); if toast == s { toast = nil } }
+	func notify(_ s: String, kind: ToastKind = .plain) {
+		let t = Toast(text: s, kind: kind)
+		toast = t
+		Task { try? await Task.sleep(for: .seconds(4)); if toast == t { toast = nil } }
 	}
 
 	func thumbnail(_ a: Album, size: Int) -> NSImage? { a.cover.flatMap { thumbnail($0, size: size) } }
@@ -103,7 +116,8 @@ final class AppState: ObservableObject {
 
 	// MARK: scanning
 
-	func rescan() {
+	/// `fresh`: read every file again instead of using the stored summaries (the Rescan button, web `fresh=1`).
+	func rescan(fresh: Bool = false) {
 		guard let root, !scanning else { if root == nil { sheet = .settings }; return }
 		scanning = true
 		let staging = source == .staging, minC = minCover, sums = summaries
@@ -117,7 +131,7 @@ final class AppState: ObservableObject {
 					let (dir, extra) = folders[i]
 					let files = staging ? extra : Scanner.flacs(in: dir, recursive: false) + extra
 					let sig = Summaries.signature(folder: dir, files: files)
-					var a = sums.album(folder: dir, sig: sig, minCover: minC)
+					var a = fresh ? nil : sums.album(folder: dir, sig: sig, minCover: minC)
 					if a == nil, let n = Scanner.loadAlbum(folder: dir, files: files, minCover: minC) { sums.put(n, sig: sig); a = n }
 					let d = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
 					lock.lock(); out[i] = a; dates[dir.path] = d; lock.unlock()
@@ -156,9 +170,15 @@ final class AppState: ObservableObject {
 		guard job == nil else { return }
 		let want = steps ?? [.dr, .replaygain, .fingerprints, .tags, .lyrics, .filenames]
 		job = "Fixing \(album.title)"
-		logLines = []
+		jobState = .running
+		notify(steps?.count == 1 ? "Running \(steps![0].label) on \(album.title)…" : "Running fixes on \(album.title)…", kind: .success)
+		var failed = false, stopped = false
 		task = Task {
-			defer { job = nil; runningStep = nil; refresh(selected ?? album); task = nil }
+			defer {
+				job = nil; runningStep = nil; refresh(selected ?? album); task = nil
+				jobState = failed ? .failed : stopped ? .stopped : .idle
+				notify(failed ? "Run finished with errors" : stopped ? "Run stopped" : "Run finished", kind: failed ? .error : stopped ? .warning : .success)
+			}
 			var cur = album
 			let files = cur.tracks.map(\.url)
 			do { let lg: Log = { [weak self] l in Task { @MainActor in self?.appendLog(l) } }; try await Task.detached { try Pipeline.stripID3v1(files, log: lg) }.value } catch { appendLog("error: \(error.localizedDescription)") }
@@ -176,16 +196,21 @@ final class AppState: ObservableObject {
 					case .filenames: refresh(cur); cur = selected ?? cur; try Pipeline.rename(album: cur, log: log)
 					case .tags: refresh(cur); cur = selected ?? cur; try await Assign.fixTags(album: cur, log: log)
 					}
-				} catch is CancellationError { appendLog("stopped"); break
-				} catch { appendLog("error: \(error.localizedDescription)"); if want.count == 1 { notify(error.localizedDescription) } }
+				} catch is CancellationError { appendLog("stopped"); stopped = true; break
+				} catch { appendLog("error: \(error.localizedDescription)"); failed = true }
 			}
-			appendLog("done")
+			if Task.isCancelled { stopped = true }
+			appendLog(failed ? "finished with errors" : stopped ? "stopped" : "finished")
 		}
 	}
 
 	func stop() { task?.cancel() }
 
-	func appendLog(_ s: String) { logLines.append(s); if logLines.count > 500 { logLines.removeFirst(100) } }
+	func appendLog(_ s: String) {
+		let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+		let k = s.hasPrefix("renamed ") ? "file" : s.range(of: "finished|done|success", options: [.regularExpression, .caseInsensitive]) != nil && !s.contains("errors") ? "ok" : ""
+		logLines.append(LogLine(t: f.string(from: Date()), m: s, k: k)); if logLines.count > 500 { logLines.removeFirst(100) }
+	}
 
 	func move(_ album: Album) {
 		guard !libraryPath.isEmpty else { sheet = .settings; return }
@@ -200,10 +225,12 @@ final class AppState: ObservableObject {
 			do {
 				let lg: Log = { [weak self] l in Task { @MainActor in self?.appendLog(l) } }
 				try await Task.detached { try Pipeline.move(album: album, library: lib, deleteSource: false, log: lg) }.value
-				if del { leftover = Leftover(folder: album.url, items: leftoverItems(album.url)); sheet = .leftover }
+				appendLog("moved to " + lib.path)
+				if del { leftover = Leftover(folder: album.url, items: leftoverItems(album.url)) }
+				sheet = del ? .leftover : nil
 				albums.removeAll { $0.id == album.id }; selection = nil
-				notify("Moved to the library")
-			} catch { notify(error.localizedDescription) }
+				notify("Moved to the library", kind: .success)
+			} catch { dialogError = error.localizedDescription }
 		}
 	}
 
@@ -250,13 +277,13 @@ final class AppState: ObservableObject {
 				} }.value
 				refresh(a)
 				if let b = albums.first(where: { $0.id == album.id }) { try await Assign.fixTags(album: b, log: { _ in }); refresh(b) }
-			} catch { notify(error.localizedDescription) }
+			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
 
 	func assign(_ album: Album, release: [String: Any], id: Int, items: [Assign.Item], importTitles: Bool) {
 		guard job == nil else { return }
-		job = "Applying \(album.title)"; logLines = []
+		job = "Applying \(album.title)"
 		nonisolated(unsafe) let r = release
 		Task {
 			defer { job = nil }
@@ -271,8 +298,8 @@ final class AppState: ObservableObject {
 					refresh(a)
 					if let b = albums.first(where: { $0.id == album.id }) { try Pipeline.rename(album: b, log: { [weak self] l in Task { @MainActor in self?.appendLog(l) } }); refresh(b) }
 				}
-				notify("Release assigned")
-			} catch { notify(error.localizedDescription) }
+				notify("Tracks assigned", kind: .success)
+			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
 
@@ -310,16 +337,50 @@ final class AppState: ObservableObject {
 				}.value
 				refresh(album)
 				if let a = albums.first(where: { $0.id == album.id }) { try Pipeline.rename(album: a, log: { _ in }); refresh(a) }
-				notify("MusicBrainz release assigned")
-			} catch { notify(error.localizedDescription) }
+				notify("MusicBrainz release applied", kind: .success)
+			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
 
 	// MARK: tags
 
-	func writeTags(_ album: Album, files: [URL]? = nil, _ change: @escaping @Sendable (URL, inout Tags) -> Void) {
+	static let overrideTargets = ["ALBUM_ARTIST_OVERRIDE": "ALBUMARTIST", "ALBUM_TITLE_OVERRIDE": "ALBUM", "ALBUM_FORMAT_OVERRIDE": "ALBUM_FORMAT", "CATALOGNUMBER_OVERRIDE": "CATALOGNUMBER"]
+
+	/// The tag editor's and the album dialog's save (app.py write_album_fields + the track edits): changed album
+	/// fields, edited tracks; clearing an override restores the Discogs value; a format, catalogue or edition change
+	/// rewrites VERSION. The step circles spin meanwhile (Tags & cover + Filenames, or Filenames).
+	func writeAlbumFields(_ album: Album, fields f: [String: String], tracks rows: [String: TrackRow], done: String) {
+		let t0 = album.tracks.first?.tags ?? [:]
+		let cleared = f.filter { k, v in k != "ALBUM_EDITION" && v.trimmingCharacters(in: .whitespaces).isEmpty && !t0.first(k).isEmpty }.map(\.key)
+		let touchedVersion = ["ALBUM_FORMAT_OVERRIDE", "CATALOGNUMBER_OVERRIDE", "ALBUM_EDITION"].contains { f[$0] != nil }
+		let dr = album.albumDR
+		writeTags(album, steps: touchedVersion ? [.tags, .filenames] : [.filenames], done: done) { url, t in
+			for (k, raw) in f {
+				let v = raw.trimmingCharacters(in: .whitespaces)
+				if k == "ALBUM_EDITION" { t[k] = v.isEmpty ? nil : [v]; continue }
+				if v.isEmpty { t[k] = nil; continue }
+				t[k] = [v]
+				if let target = Self.overrideTargets[k] { t[target] = [v] }
+				if k == "CATALOGNUMBER_OVERRIDE" { for alt in ["CATALOG NUMBER", "CATALOG_NUMBER", "CATALOGNO"] { t[alt] = nil } }
+			}
+			if let r = rows[url.path] {
+				t["TITLE"] = [r.title.trimmingCharacters(in: .whitespaces)]; t["DISCNUMBER"] = [r.disc.trimmingCharacters(in: .whitespaces)]; t["TRACKNUMBER"] = [r.track.trimmingCharacters(in: .whitespaces)]
+				let ar = r.artist.trimmingCharacters(in: .whitespaces), sub = r.subtitle.trimmingCharacters(in: .whitespaces)
+				t["ARTIST"] = ar.isEmpty ? nil : [ar]
+				t["SET SUBTITLE"] = sub.isEmpty ? nil : [sub]; t["DISCSUBTITLE"] = sub.isEmpty ? nil : [sub]
+			}
+			if touchedVersion, !t.first("DISCOGS_RELEASE_ID").isEmpty {
+				t["VERSION"] = [Naming.versionString(year: t.first("ALBUM_RELEASE_YEAR", "DATE"), dr: dr, format: t.first("ALBUM_FORMAT"), edition: t.first("ALBUM_EDITION"), catalog: t.first("CATALOGNUMBER", "CATALOG NUMBER"))]
+			}
+		}
+		if !cleared.isEmpty { restoreFromDiscogs(album) }
+	}
+
+	func writeTags(_ album: Album, files: [URL]? = nil, steps: Set<StepID> = [], done: String? = nil, _ change: @escaping @Sendable (URL, inout Tags) -> Void) {
 		let urls = files ?? album.tracks.map(\.url)
+		working[album.id] = steps
 		Task {
+			defer { working[album.id] = nil }
 			do {
 				try await Task.detached { try Pipeline.update(urls, change) }.value
 				refresh(album)
@@ -327,27 +388,33 @@ final class AppState: ObservableObject {
 					try Pipeline.rename(album: a, log: { _ in }); refresh(a)
 				}
 				if source == .library { library.refresh(album.url) }
-			} catch { notify(error.localizedDescription) }
+				if let done { notify(done, kind: .success) }
+			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
 
 	/// Album-level artwork write (ADR 0090): only pictures of `type` change; front holds one image, the others several.
-	func addArtwork(_ album: Album, data: Data, type: ArtType = .front) {
-		guard let (d, mime, w, h) = ImageSize.embeddable(data, max: maxCover) else { notify("Not an image"); return }
+	/// `replacing`: the image this one takes the place of (a drop on a shown image, the cover menu's Upload).
+	func addArtwork(_ album: Album, data: Data, type: ArtType = .front, replacing: Data? = nil) {
+		guard let (d, mime, w, h) = ImageSize.embeddable(data, max: maxCover) else { notify("That is not an image", kind: .error); return }
 		let pic = Picture(type: type.rawValue, mime: mime, desc: "", width: UInt32(w), height: UInt32(h), data: d)
 		let urls = album.tracks.map(\.url)
+		coverBusy = album.id; working[album.id] = [.tags]   // the fields spin and so does Tags & cover (web putCover)
 		Task {
+			defer { coverBusy = nil; working[album.id] = nil }
 			do {
 				try await Task.detached {
 					for u in urls {
 						var f = try FlacFile(url: u)
 						if type == .front { f.pictures.removeAll { $0.type == 3 } }
-						else if f.pictures.contains(where: { $0.type == type.rawValue && $0.data == d }) { continue }
+						else if let r = replacing { f.pictures.removeAll { $0.type == type.rawValue && $0.data == r } }
+						if type != .front, f.pictures.contains(where: { $0.type == type.rawValue && $0.data == d }) { continue }
 						f.pictures.append(pic); try f.save()
 					}
 				}.value
 				refresh(album)
-			} catch { notify(error.localizedDescription) }
+				appendLog("cover artwork added"); notify("Cover updated", kind: .success)
+			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
 
@@ -361,6 +428,7 @@ final class AppState: ObservableObject {
 				if type == .front, let c = Scanner.folderImage(dir) { try? FileManager.default.removeItem(at: c) }
 			}.value
 			refresh(album)
+			appendLog("cover artwork removed"); notify("Cover removed", kind: .success)
 		}
 	}
 
@@ -373,27 +441,27 @@ final class AppState: ObservableObject {
 			let d = try? Data(contentsOf: u), ImageSize.of(d) != nil { addArtwork(album, data: d, type: type); return }
 		if let d = pb.data(forType: .png) ?? pb.data(forType: NSPasteboard.PasteboardType("public.jpeg")) { addArtwork(album, data: d, type: type); return }
 		if let t = pb.data(forType: .tiff), let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) { addArtwork(album, data: png, type: type); return }
-		notify("No image on the clipboard")
+		notify("No image on the clipboard", kind: .error)
 	}
 
-	func dropCover(_ album: Album, providers: [NSItemProvider], type: ArtType = .front) -> Bool {
+	func dropCover(_ album: Album, providers: [NSItemProvider], type: ArtType = .front, replacing: Data? = nil) -> Bool {
 		for p in providers {
 			if p.hasItemConformingToTypeIdentifier("public.file-url") {
 				_ = p.loadObject(ofClass: URL.self) { u, _ in
 					guard let u, let d = try? Data(contentsOf: u) else { return }
-					Task { @MainActor in self.addArtwork(album, data: d, type: type) }
+					Task { @MainActor in self.addArtwork(album, data: d, type: type, replacing: replacing) }
 				}
 				return true
 			}
 			if p.hasItemConformingToTypeIdentifier("public.image") {
 				p.loadDataRepresentation(forTypeIdentifier: "public.image") { d, _ in
 					guard let d else { return }
-					Task { @MainActor in self.addArtwork(album, data: d, type: type) }
+					Task { @MainActor in self.addArtwork(album, data: d, type: type, replacing: replacing) }
 				}
 				return true
 			}
 		}
-		notify("Drop an image file")
+		notify("That is not an image", kind: .error)
 		return false
 	}
 
@@ -406,12 +474,8 @@ final class AppState: ObservableObject {
 	// MARK: playback (ADR 0015, 0068)
 
 	func play(_ t: Track) {
-		if playing == t.id, let player {   // same track: pause / resume (web: Play/Pause)
-			if paused { player.play() } else { player.pause() }
-			paused.toggle(); return
-		}
+		if playing == t.id { stopPlayback(); return }   // web: the second click stops; the next one starts again
 		player?.pause()
-		paused = false
 		player = AVPlayer(url: t.url)
 		player?.play()
 		playing = t.id
@@ -419,7 +483,7 @@ final class AppState: ObservableObject {
 			Task { @MainActor in self?.stopPlayback() }
 		}
 	}
-	func stopPlayback() { player?.pause(); player = nil; playing = nil; paused = false }
+	func stopPlayback() { player?.pause(); player = nil; playing = nil }
 
 	func chooseFolder(_ forStaging: Bool) {
 		let p = NSOpenPanel()
