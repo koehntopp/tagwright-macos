@@ -19,7 +19,7 @@ Done 2026-11-22:
 - Large libraries (817 albums, 11,090 tracks): album status is computed once per scan and per refreshed album, not per redraw; naming and lyrics-kind regexes are compiled once; the summary store (100+ MB) is written in the background. Selecting an album no longer stalls the app.
 - Web-side MP3 fixes found by the end-to-end comparison (web c5c52ac): TXXX copies of mapped keys (ffmpeg's TXXX:DISCTOTAL, TXXX:LABEL ...) are read and moved into their frames; this port already did so.
 - Clear buttons (0094, `Clearable`/`ClearX` in Theme.swift): every single-line text field shows an x while it has text and is hovered or focused; number fields (tag editor Disc/Track, counts, cover sizes) and the lyrics editor have none. No ⌘K hint in the search (the shortcut stays).
-- Top bar (0095): Rescan, the view pill (white, slate-300 border, active view slate-200), the folder switch and the search as one group on the right. Settings… is in the Tagwright menu (⌘,), as macOS apps have it; the web app has no menu bar.
+- Top bar (0095): the folder switch, Rescan, the view pill (white, slate-300 border, active view slate-200) and the search as one group on the right. Settings… is in the Tagwright menu (⌘,), as macOS apps have it; the web app has no menu bar.
 - Logging (0064-0066, `AppLog.swift`): app, pipeline and library lines to ~/Library/Logs/Tagwright/tagwright.log and the unified log; `logLevel` default = LOG_LEVEL. SYSLOG_HOST not ported (Console takes that role on a Mac).
 
 ## Reverse-analysis comparison (RE-cue output vs. native, 2026-11-22)

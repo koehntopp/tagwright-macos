@@ -139,14 +139,14 @@ struct TopBar: View {
 				ForEach(Filter.allCases, id: \.self) { f in FilterButton(f: f) }
 			}.fixedSize()
 			Spacer(minLength: 8)
-			// ADR 0095: Rescan, the view pill, the folder switch and the search as one group
+			SourceSwitch()
+			// ADR 0095: the folder switch, Rescan, the view pill and the search as one group
 			RoundIcon(icon: .refreshCw, help: "Rescan folder", spinning: app.scanning) { app.rescan(fresh: true); app.notify("Rescanned", kind: .success) }
 			HStack(spacing: 2) {
 				ViewToggle(icon: .layoutGrid, on: !app.listView, help: "Card view") { app.listView = false }
 				ViewToggle(icon: .list, on: app.listView, help: "List view") { app.listView = true }
 			}
 			.padding(2).frame(height: 36).background(.white, in: Capsule()).overlay(Capsule().stroke(Color.slate(300)))
-			SourceSwitch()
 			HStack(spacing: 8) {
 				LucideIcon(icon: .search, size: 16).foregroundStyle(Color.slate(400))
 				TextField("Search", text: $app.search).textFieldStyle(.plain).font(.system(size: 14)).focused(searchFocus)
