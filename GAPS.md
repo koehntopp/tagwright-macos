@@ -14,6 +14,10 @@ Done 2026-11-22:
 - MusicBrainz release lookups cached on disk for 30 days (~/Library/Caches/Tagwright/musicbrainz).
 - lrclib pacing, circuit breaker and retry rounds (`LrcPacer`).
 - ReplayGain with the web app's rsgain preset (-14 LUFS, clipping protection at -1 dBTP, true peak); equal to rsgain on a real album (`ReplayGainTests`, `TW_RSGAIN`). As `rsgain easy`, every disc folder is its own album (ADR 0076). Checked end to end against the web pipeline (drcalc, rsgain, fpscan, fixtags, lyrics, naming) on two copies of a FLAC, a 3-disc and an MP3 album: tags equal except fingerprints (~0.03 % of bits) and true peaks (5th decimal). The web app has no settings for the RG target, the RG skip or the language lookup (pipeline Config defaults), so none are added.
+- Dynamic range (0036/0076): tags written as drcalc does, zero-padded (`08`), 0 never written; a track shorter than 12 s is skipped, the others and ALBUM_DR are still written, then the step fails. Measurements equal drcalc's on every track checked.
+- Files whose tags would not change are not rewritten (DR, ReplayGain, tags steps), as drcalc and rsgain.
+- Large libraries (817 albums, 11,090 tracks): album status is computed once per scan and per refreshed album, not per redraw; naming and lyrics-kind regexes are compiled once; the summary store (100+ MB) is written in the background. Selecting an album no longer stalls the app.
+- Web-side MP3 fixes found by the end-to-end comparison (web c5c52ac): TXXX copies of mapped keys (ffmpeg's TXXX:DISCTOTAL, TXXX:LABEL ...) are read and moved into their frames; this port already did so.
 - Logging (0064-0066, `AppLog.swift`): app, pipeline and library lines to ~/Library/Logs/Tagwright/tagwright.log and the unified log; `logLevel` default = LOG_LEVEL. SYSLOG_HOST not ported (Console takes that role on a Mac).
 
 ## Reverse-analysis comparison (RE-cue output vs. native, 2026-11-22)
