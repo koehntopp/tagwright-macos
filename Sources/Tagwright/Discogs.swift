@@ -46,6 +46,7 @@ struct DTrack: Identifiable, Hashable {
 	var id: Int
 	var disc: Int, number: Int, title: String, artist: String, seconds: Int, subtitle: String
 	var writers: [String] = [], producers: [String] = [], engineers: [String] = []
+	var position = ""   // the Discogs position as written ("A1", "2-3"), TRACK_NUMBER_TEXT
 }
 
 enum Discogs {
@@ -166,7 +167,8 @@ enum Discogs {
 			}()
 			let isDisc = heading.range(of: #"^(?:disc|cd|dvd)\s*\d+"#, options: [.regularExpression, .caseInsensitive]) != nil
 			var tr = DTrack(id: out.count, disc: disc, number: no, title: mainTitle, artist: ta.isEmpty ? albumArtist : ta, seconds: secs, subtitle: isDisc ? "" : heading)
-			tr.writers = credits(t, ["written", "composed", "music by", "songwriter", "lyrics by", "words by"])
+			tr.position = pos
+			tr.writers = credits(t, writerRoles)
 			tr.producers = credits(t, ["producer"]); tr.engineers = credits(t, ["engineer"])
 			out.append(tr)
 		}
@@ -221,31 +223,63 @@ enum Discogs {
 	}
 
 	/// Player tags filled from a release when empty (ADR 0053 table); catalogue number and format are led by Discogs (ADR 0080).
+	static let writerRoles = ["written-by", "written by", "composed by", "music by", "songwriter", "lyrics by", "words by"]   // app.py WRITER_ROLES
+	static func uniq(_ xs: [String]) -> [String] { var seen = Set<String>(); return xs.filter { !$0.isEmpty && seen.insert($0).inserted } }
+
+	/// The Discogs-owned DISCOGS_* tags of a release (app.py release_tags): replaced on every assignment.
+	static func discogsTags(_ r: [String: Any]) -> Tags {
+		let artists = r["artists"] as? [[String: Any]] ?? [], labels = r["labels"] as? [[String: Any]] ?? []
+		let rid = (r["id"] as? Int).map(String.init) ?? "\(r["id"] ?? "")"
+		let artistURLs = artists.compactMap { ($0["id"] as? Int).map { "https://www.discogs.com/artist/\($0)" } }
+		let master = (r["master_id"] as? Int).flatMap { $0 > 0 ? $0 : nil }
+		var t: Tags = [
+			"DISCOGS_RELEASE_URL": [r["uri"] as? String ?? ""],
+			"DISCOGS_MASTER_ID": master.map { ["m\($0)"] } ?? [],
+			"DISCOGS_MASTER_URL": master.map { ["https://www.discogs.com/master/\($0)"] } ?? [],
+			"DISCOGS_ARTIST_URL": artistURLs, "DISCOGS_ALBUMARTIST_URL": artistURLs,
+			"DISCOGS_ARTIST_LIST": [artists.map { name($0["name"] as? String ?? "") }.joined(separator: ", ")],
+			"DISCOGS_LABEL_URL": labels.compactMap { ($0["id"] as? Int).map { "https://www.discogs.com/label/\($0)" } },
+			"DISCOGS_ARTWORK_URL": ["https://www.discogs.com/viewimages?release=\(rid)"],
+			"DISCOGS_CATALOG_NUMBER": uniq(labels.compactMap { l in (l["catno"] as? String).flatMap { $0.isEmpty ? nil : "\(name(l["name"] as? String ?? "")): \($0)" } }),
+			"DISCOGS_ALBUM_RELEASECOUNTRY": [r["country"] as? String ?? ""],
+			"DISCOGS_RELEASE_NOTES": [(r["notes"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)],
+			"DISCOGS_VIDEO_URL": uniq((r["videos"] as? [[String: Any]] ?? []).compactMap { v in (v["uri"] as? String).map { "\((v["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)): \($0)" } }),
+		]
+		var roles: [(String, [String])] = []   // Recorded At, Mixed At, Pressed By, ...: one joined tag per role
+		for c in r["companies"] as? [[String: Any]] ?? [] {
+			let role = (c["entity_type_name"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+			guard !role.isEmpty, !["copyright (c)", "phonographic copyright (p)"].contains(role.lowercased()) else { continue }
+			let key = tagKey("DISCOGS_", role), n = name(c["name"] as? String ?? "")
+			guard !key.isEmpty else { continue }
+			if let i = roles.firstIndex(where: { $0.0 == key }) { if !n.isEmpty, !roles[i].1.contains(n) { roles[i].1.append(n) } } else { roles.append((key, n.isEmpty ? [] : [n])) }
+		}
+		for (k, v) in roles where t[k] == nil { t[k] = v.isEmpty ? [] : [v.joined(separator: ", ")] }
+		return t.mapValues { $0.filter { !$0.isEmpty } }.filter { !$0.value.isEmpty }
+	}
+
 	static func playerTags(_ r: [String: Any]) -> Tags {
 		var t = Tags()
 		func set(_ k: String, _ v: [String]) { let x = v.filter { !$0.isEmpty }; if !x.isEmpty { t[k] = x } }
-		set("GENRE", r["genres"] as? [String] ?? [])
+		set("GENRE", uniq(r["genres"] as? [String] ?? []))
 		set("MOOD", [(r["styles"] as? [String] ?? []).joined(separator: ", ")])
 		let labels = r["labels"] as? [[String: Any]] ?? []
-		set("LABEL", Array(NSOrderedSet(array: labels.map { name($0["name"] as? String ?? "") })) as? [String] ?? [])
-		set("MEDIA", [(r["formats"] as? [[String: Any]] ?? []).map { f -> String in
+		set("LABEL", uniq(labels.map { name($0["name"] as? String ?? "") }))
+		set("MEDIA", [(r["formats"] as? [[String: Any]] ?? []).filter { !($0["name"] as? String ?? "").isEmpty }.map { f -> String in
 			let d = (f["descriptions"] as? [String] ?? []).joined(separator: ",")
 			return (f["name"] as? String ?? "") + (d.isEmpty ? "" : " (\(d))")
 		}.joined(separator: ", ")])
 		set("COUNTRY", [r["country"] as? String ?? ""])
 		set("BARCODE", [((r["identifiers"] as? [[String: Any]] ?? []).first { ($0["type"] as? String) == "Barcode" })?["value"] as? String ?? ""])
-		set("CATALOG", labels.compactMap { $0["catno"] as? String }.filter { $0.lowercased() != "none" && !$0.isEmpty })
+		set("CATALOG", uniq(labels.compactMap { ($0["catno"] as? String)?.trimmingCharacters(in: .whitespaces) }.filter { $0.lowercased() != "none" }))
 		let companies = r["companies"] as? [[String: Any]] ?? []
-		set("COPYRIGHT", [companies.compactMap { c -> String? in
-			let t = c["entity_type_name"] as? String ?? "", n = name(c["name"] as? String ?? "")
-			return t == "Phonographic Copyright (p)" ? "℗ \(n)" : t == "Copyright (c)" ? "© \(n)" : nil
-		}.joined(separator: ", ")])
-		set("PUBLISHER", [companies.filter { ($0["entity_type_name"] as? String) == "Published By" }.map { name($0["name"] as? String ?? "") }.joined(separator: ", ")])
+		func company(_ type: String) -> [String] { uniq(companies.filter { ($0["entity_type_name"] as? String ?? "").lowercased() == type }.map { name($0["name"] as? String ?? "") }) }
+		set("COPYRIGHT", [(company("phonographic copyright (p)").map { "℗ \($0)" } + company("copyright (c)").map { "© \($0)" }).joined(separator: ", ")])
+		set("PUBLISHER", [company("published by").joined(separator: ", ")])
 		let ea = r["extraartists"] as? [[String: Any]] ?? []
-		func role(_ keys: [String]) -> [String] { ea.filter { a in keys.contains { (a["role"] as? String ?? "").lowercased().contains($0) } }.map { name($0["name"] as? String ?? "") } }
-		set("COMPOSER", role(["written", "composed", "music by", "songwriter", "lyrics by", "words by"]))
+		func role(_ keys: [String]) -> [String] { uniq(ea.filter { a in keys.contains { (a["role"] as? String ?? "").lowercased().contains($0) } }.map { name($0["name"] as? String ?? "") }) }
+		set("COMPOSER", role(writerRoles))
 		set("PRODUCER", role(["producer"])); set("ENGINEER", role(["engineer"]))
-		set("PERSONNEL", ea.map { "\(name($0["name"] as? String ?? "")) - \($0["role"] as? String ?? "")" })
+		set("PERSONNEL", uniq(ea.compactMap { e in let n = e["name"] as? String ?? "", r = e["role"] as? String ?? ""; return n.isEmpty || r.isEmpty ? nil : "\(name(n)) - \(r)" }))
 		return t
 	}
 

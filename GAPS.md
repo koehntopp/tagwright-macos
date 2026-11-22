@@ -3,10 +3,13 @@
 Done in this port: status model and steps (0054), bliss names (0010), layout and move (0011/0037), top bar, Staging/Library switch, cards and list (0031/0038/0085-0087), inspector with unified notes (0083), four artwork fields with drop/paste (0090/0092), Discogs release search and assignment with proposal, Import song titles, rate limiting, track counts, MusicBrainz match (0013/0053/0078-0080), MusicBrainz search and assignment with Discogs-ID/barcode/catalogue matches and year/Discogs-link/track-count checks (0023/0083), Tags & cover step ported from fixtags.py (0036), tag editor with five tabs, overrides, drag renumbering and read-only tag tabs (0014/0057), lyrics editor (0015/0021), leftover-folder dialog (0072), playback marker and stop (0015/0068), double-click runs one step (0051), stored album summaries for Staging and Library (0067, `Summaries.swift`: binary plist in Application Support, one entry per folder keyed by path/mtime/size of every FLAC and the folder image, 640 px cover thumbnail, fingerprint values replaced by a marker; artwork is read when an album is selected or moved; `Summaries.version` replaces SUMMARY_VERSION).
 
 ## Still missing
-- Tag editor Tracks tab: subtitle dividers, "+ divider here", checkbox range selection (0081). Assignment dialogs: Release/Keep-mine subtitle choice (0081), re-assignment replacing the previous release's values (0053), disc order for multi-disc proposals (0089).
-- Settings: layout tab, per-step Settings of ReplayGain targets; logging to a file/syslog (0064-0066).
-- Free-text fixes: Discogs master ID in the album summaries.
-- Cover search links (0056), persistent column widths in the list (0086).
+(Done 2026-11-22: re-assignment (0053/0080): the release's player tags lead, the previous release's DISCOGS_* tags are removed and the new ones written, with DISCOGS_RELEASE_ORDINAL_POSITION and TRACK_NUMBER_TEXT; checked against the web's release_tags() on two releases (`ReleaseTagsTests`). The Discogs master ID is in the summaries with the other tags.)
+2. Settings: ReplayGain target per step; logging to a file / syslog (0064-0066); switches for the MusicBrainz language lookup and the ReplayGain skip.
+3. `artwork.py`: sidecar cover files exported from the embedded art at a move, and recreated after a watcher move (0091); native writes only `cover.jpg` at a move.
+5. `lrclib.py`: parallel lookups (8 workers), retry rounds and circuit breaker (native: sequential, up to 3 attempts).
+6. MusicBrainz answers cached on disk for 30 days (native: for the session).
+
+Not tested by hand yet: drag and drop and hover states, the Discogs and lrclib result lists, saves and assignments from the new dialogs, a real MP3 album in the app.
 
 ## Reverse-analysis comparison (RE-cue output vs. native, 2026-11-22)
 
@@ -14,18 +17,18 @@ RE-cue found 37 endpoints, 29 backend modules, 8 UI views. Field names and behav
 
 Endpoint coverage (native = equivalent in-process function):
 - Covered: albums/album, cover get/put/delete, covers list, run/stop/job, move/move-preview, folder/folder-delete, discogs search/tracks, tracks propose/apply, track get/set, musicbrainz search/release/check/apply, tags get/set, overrides, lrclib search, audio playback, settings.
-- Missing: `/api/library*` (versions, status, rescan, preview, albums.csv) = watcher, planner, executor, index, summaries, template modules (about 1,200 lines of web code, none ported).
+- `/api/library*` (versions, status, rescan, preview, albums.csv): ported as the library subsystem below (in-process, no HTTP).
 
 Module coverage:
 - Done: `mp3.py` and the `audio.py` seam (0058/0059) in `Mp3.swift` (`Mp3File`, `AudioFile`): ID3v2.2/2.3/2.4 read, v2.4 written (UTF-8, several values per frame), the web key mapping (text frames, TRCK/TPOS halves, USLT, COMM, TXXX for the rest, APIC with measured size), unknown frames and an ID3v1 block kept, audio copied byte for byte; stream info from the first frame and Xing/VBRI; MP3 in staging, library, naming (own extension), all six steps, mixed albums. Checked against mutagen on 40 real files (`Mp3Tests`, `TW_MP3`).
-- Missing: `library/*` (see above), `logconfig.py`, `artwork.py` sidecar export (`sidecar_names`, `export`).
+- Missing: `logconfig.py`, `artwork.py` sidecar export (`sidecar_names`, `export`); see Still missing.
 - Done in the Tags step (`Assign.fixTags`): `languages.py` (LYRICS_LANGUAGE per track from MUSICBRAINZ_ALBUMID, matched by release-track ID or disc/track plus title), `covers.py` resize to the maximum cover size; `replaygain.has_album_gain` skip in `Pipeline.replayGain`. Differences: MusicBrainz answers are cached for the session only (web: 30 days on disk); a track MusicBrainz lists without a language keeps a `zxx` set by the lyrics step (web: removed, then set again by the next lyrics run); no settings to switch the language lookup or the ReplayGain skip off (web: both on by default).
 - Done, `lyrics.py` + `lrc_format.py` (Lrc.swift): existing-LRC repair, normalisation, capitalisation, search variants, failed vs not found, zxx marker, invalid-timestamp rejection, suspect reasons in the editor. Not ported: parallel lookups (8 workers) and the retry rounds / circuit breaker of `lrclib.py` (native: sequential, up to 3 attempts per lookup, failed tracks are reported and retried on the next run).
 - Done, `layout.py` (`Scanner`): `Disc N` / `CD N` with any spacing, all audio below a disc folder, a disc folder directly in the library root is its own album; checked on 2- and 8-disc staging albums linked into a library layout (`LayoutTests`, `TW_MULTIDISC`). Differs on purpose: `Album/CD1/Bonus` stays part of `Album` (the web app also lists `Bonus` as a second album).
 
 ## Library subsystem (ported, Library*.swift and Lib*.swift)
 Done: path template with editor and live preview (0037), planner, executor, cheap quick/full scans over a persisted index, watcher with cooldown and Report-only mode, status dialog with Re-analyze, top-bar status, Move to library through the template, "In your library" rows (0082), CSV export from the index (0077; file save, no HTTP endpoint).
-Differences: index is JSON in Application Support, not SQLite; Apply defaults to OFF here (web: on) until the first report has been checked; sidecar artwork is not recreated from embedded art after a watcher move (0091); chips cannot be dragged, only moved with the menu; a watcher pass runs on the main actor between awaits (scan and moves run off it).
+Differences: index is JSON in Application Support, not SQLite; Apply defaults to OFF here (web: on) until the first report has been checked; sidecar artwork is not recreated from embedded art after a watcher move (0091); a watcher pass runs on the main actor between awaits (scan and moves run off it).
 
 ## UI parity with the web app (2026-11-22)
 

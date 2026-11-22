@@ -121,7 +121,7 @@ enum Assign {
 		let cat = (labels.first?["catno"] as? String ?? "").trimmingCharacters(in: .whitespaces)
 		var realCat = cat
 		if cat.lowercased() == "none" || cat.isEmpty { realCat = labels.compactMap { $0["catno"] as? String }.first { $0.lowercased() != "none" && !$0.isEmpty } ?? "none" }
-		let player = Discogs.playerTags(r)
+		let player = Discogs.playerTags(r), owned = Discogs.discogsTags(r)
 		let image = album.cover == nil ? await Discogs.imageData(r) : nil
 		let byURL = Dictionary(uniqueKeysWithValues: items.map { ($0.url.path, $0) })
 		let urls = items.map(\.url)
@@ -135,15 +135,17 @@ enum Assign {
 					for k in catalogSpellings { t[k] = nil }
 					t["CATALOGNUMBER"] = [realCat]
 				}
-				for (k, v) in player {
-					if ["COMPOSER", "PRODUCER", "ENGINEER", "CATALOG"].contains(k) { continue }
-					if t[k]?.contains(where: { !$0.isEmpty }) != true { t[k] = v }
-				}
+				// ADR 0080 / app.py tracks_apply: the release leads its player tags (replaced, so a re-assignment
+				// leaves nothing of the previous release); nothing is written where the release has no value
+				for (k, v) in player where !["COMPOSER", "PRODUCER", "ENGINEER"].contains(k) { t[k] = v }
 				for (k, roles) in [("COMPOSER", it.track.writers), ("PRODUCER", it.track.producers), ("ENGINEER", it.track.engineers)] {
 					let v = roles.isEmpty ? (player[k] ?? []) : roles
 					if !v.isEmpty { t[k] = v }
 				}
-				if t["CATALOG"] == nil, let c = player["CATALOG"] { t["CATALOG"] = c }
+				for k in t.keys where k.hasPrefix("DISCOGS_") && k != "DISCOGS_RELEASE_ID" { t[k] = nil }   // Discogs-owned: this release's only
+				for (k, v) in owned { t[k] = v }
+				t["DISCOGS_RELEASE_ORDINAL_POSITION"] = ["\(it.track.id)"]
+				if !it.track.position.isEmpty { t["TRACK_NUMBER_TEXT"] = [it.track.position] }
 				if importTitles {
 					t["TITLE"] = [it.title]; t["ARTIST"] = [it.track.artist.isEmpty ? artists : it.track.artist]
 					t["TRACKNUMBER"] = ["\(it.number)"]; t["DISCNUMBER"] = ["\(it.disc)"]
