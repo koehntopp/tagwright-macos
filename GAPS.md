@@ -21,7 +21,7 @@ Endpoint coverage (native = equivalent in-process function):
 Module coverage:
 - Missing: `mp3.py` (295 lines, ID3v2.4), `library/*` (see above), `logconfig.py`, `languages.py` (LYRICS_LANGUAGE from MusicBrainz), `covers.py` (resize), `artwork.py` sidecar export (`sidecar_names`, `export`), `replaygain.has_album_gain` skip.
 - Done, `lyrics.py` + `lrc_format.py` (Lrc.swift): existing-LRC repair, normalisation, capitalisation, search variants, failed vs not found, zxx marker, invalid-timestamp rejection, suspect reasons in the editor. Not ported: parallel lookups (8 workers) and the retry rounds / circuit breaker of `lrclib.py` (native: sequential, up to 3 attempts per lookup, failed tracks are reported and retried on the next run).
-- Partial, `layout.py`: disc-dir detection and flac discovery exist; check `album_root` handling for CD1/Disc 1 variants on real data.
+- Done, `layout.py` (`Scanner`): `Disc N` / `CD N` with any spacing, all audio below a disc folder, a disc folder directly in the library root is its own album; checked on 2- and 8-disc staging albums linked into a library layout (`LayoutTests`, `TW_MULTIDISC`). Differs on purpose: `Album/CD1/Bonus` stays part of `Album` (the web app also lists `Bonus` as a second album).
 
 ## Library subsystem (ported, Library*.swift and Lib*.swift)
 Done: path template with editor and live preview (0037), planner, executor, cheap quick/full scans over a persisted index, watcher with cooldown and Report-only mode, status dialog with Re-analyze, top-bar status, Move to library through the template, "In your library" rows (0082), CSV export from the index (0077; file save, no HTTP endpoint).

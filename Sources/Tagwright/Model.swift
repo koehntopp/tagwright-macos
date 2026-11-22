@@ -251,7 +251,7 @@ struct Album: Identifiable {
 // MARK: discovery
 
 enum Scanner {
-	static let discDir = try! NSRegularExpression(pattern: #"^(disc|cd)\s?\d+$"#, options: .caseInsensitive)
+	static let discDir = try! NSRegularExpression(pattern: #"^(disc|cd)\s*\d+$"#, options: .caseInsensitive)
 
 	static func isDisc(_ n: String) -> Bool { discDir.firstMatch(in: n, range: NSRange(n.startIndex..., in: n)) != nil }
 
@@ -262,13 +262,15 @@ enum Scanner {
 		for u in items.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
 			let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
 			if isDir {
-				if recursive || (discsOnly && isDisc(u.lastPathComponent)) { out += flacs(in: u, recursive: recursive, discsOnly: discsOnly) }
-			} else if u.pathExtension.lowercased() == "flac" { out.append(u) }
+				if recursive { out += flacs(in: u, recursive: true) }
+				else if discsOnly && isDisc(u.lastPathComponent) { out += flacs(in: u, recursive: true) }   // all audio below a disc folder (layout.py)
+			} else if !discsOnly, u.pathExtension.lowercased() == "flac" { out.append(u) }   // discsOnly: only what is in disc folders
 		}
 		return out
 	}
 
-	/// Staging: every top-level folder is one album (ADR 0076). Library: every folder with FLACs of its own.
+	/// Staging: every top-level folder is one album (ADR 0076). Library: every folder with FLACs of its own, its
+	/// `Disc N` / `CD N` folders counted as part of it; a disc folder directly in the root is an album of its own.
 	static func albumFolders(root: URL, staging: Bool) -> [(URL, [URL])] {
 		let fm = FileManager.default
 		var out: [(URL, [URL])] = []
@@ -279,14 +281,14 @@ enum Scanner {
 				if !f.isEmpty { out.append((u, f)) }
 			}
 		} else {
-			func walk(_ d: URL) {
+			func walk(_ d: URL, top: Bool) {
 				let own = flacs(in: d, recursive: false)
-				let discs = flacs(in: d, recursive: false, discsOnly: true)
+				let discs = top ? [] : flacs(in: d, recursive: false, discsOnly: true)
 				if !own.isEmpty || !discs.isEmpty { out.append((d, discs)) }
 				let items = (try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
-				for u in items where (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && !isDisc(u.lastPathComponent) { walk(u) }
+				for u in items where (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && (top || !isDisc(u.lastPathComponent)) { walk(u, top: false) }
 			}
-			walk(root)
+			walk(root, top: true)
 		}
 		return out.sorted { $0.0.lastPathComponent.localizedStandardCompare($1.0.lastPathComponent) == .orderedAscending }
 	}

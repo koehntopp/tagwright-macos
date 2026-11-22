@@ -144,7 +144,9 @@ final class AppState: ObservableObject {
 	}
 
 	private func albumFiles(_ dir: URL) -> [URL] {
-		source == .staging ? Scanner.flacs(in: dir, recursive: true) : Scanner.flacs(in: dir, recursive: false) + Scanner.flacs(in: dir, recursive: false, discsOnly: true)
+		if source == .staging { return Scanner.flacs(in: dir, recursive: true) }
+		let own = Scanner.flacs(in: dir, recursive: false)
+		return dir.standardizedFileURL == root?.standardizedFileURL ? own : own + Scanner.flacs(in: dir, recursive: false, discsOnly: true)
 	}
 
 	// MARK: pipeline jobs (ADR 0008, 0051)
