@@ -229,7 +229,7 @@ struct Inspector: View {
 			ForEach(a.tracks) { t in
 				HStack(spacing: 8) {
 					Button { app.play(t) } label: { Image(systemName: app.playing == t.id && !app.paused ? "pause.fill" : "play.fill") }
-						.buttonStyle(IconButton(color: app.playing == t.id ? Color.ink : Color.muted)).help(app.playing == t.id && !app.paused ? "Pause" : "Play")
+						.buttonStyle(IconButton(color: Color.ink, active: app.playing == t.id)).help(app.playing == t.id && !app.paused ? "Pause" : "Play")
 					Text(t.number.isEmpty ? "" : String(format: "%02d", Int(t.number) ?? 0)).font(.system(size: 12)).foregroundStyle(Color.muted).frame(width: 22, alignment: .leading)
 					Text(t.title).font(.system(size: 13)).lineLimit(1)
 					Spacer(minLength: 4)

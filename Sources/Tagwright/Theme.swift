@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension Color {
@@ -65,12 +66,14 @@ struct SoftButton: ButtonStyle {
 	}
 }
 
-/// Small round icon button like the web app's (`rounded-full p-1 hover:bg-white`): a 24 pt hit area with a
-/// hover fill, so pen and play controls are easy to find and hit.
+/// Small round icon button like the web app's (`rounded-full p-1 hover:bg-white`, pointer cursor): a 24 pt
+/// circle that is visible at rest, fills on hover and shows the pointing hand. `active` draws it dark (the
+/// playing track).
 struct IconButton: ButtonStyle {
 	var size: CGFloat = 24
 	var color = Color.ink
 	var hover = Color.white
+	var active = false
 	func makeBody(configuration c: Configuration) -> some View { IconBody(c: c, style: self) }
 	struct IconBody: View {
 		let c: Configuration, style: IconButton
@@ -78,12 +81,15 @@ struct IconButton: ButtonStyle {
 		@Environment(\.isEnabled) private var enabled
 		var body: some View {
 			c.label.font(.system(size: style.size * 0.5, weight: .semibold))
-				.foregroundStyle(enabled ? style.color : Color.muted.opacity(0.5))
+				.foregroundStyle(style.active ? .white : enabled ? (over ? Color.ink : style.color) : Color.muted.opacity(0.5))
 				.frame(width: style.size, height: style.size)
-				.background(Circle().fill(c.isPressed ? Color.black.opacity(0.12) : over && enabled ? style.hover : .clear))
-				.overlay(Circle().stroke(Color.black.opacity(over && enabled ? 0.08 : 0)))
+				.background(Circle().fill(style.active ? Color.ink : c.isPressed ? Color.black.opacity(0.14) : over && enabled ? style.hover : Color.black.opacity(0.05)))
+				.overlay(Circle().stroke(Color.black.opacity(over && enabled && !style.active ? 0.12 : 0)))
 				.contentShape(Circle())
-				.onHover { over = $0 }
+				.onHover { h in
+					over = h
+					if h && enabled { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+				}
 		}
 	}
 }
