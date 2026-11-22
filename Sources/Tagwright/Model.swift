@@ -97,9 +97,12 @@ struct Track: Identifiable {
 	var lyricsKind: LyricsKind {
 		let l = tags.first("LYRICS")
 		if l.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return tags.first("LYRICS_LANGUAGE") == "zxx" ? .instr : .none }
-		if l.range(of: #"\[instrumental:true\]|\[\d{2}:\d{2}\.\d{2}\]\s*(?:\[instrumental\]|\(instrumental\))"#, options: [.regularExpression, .caseInsensitive]) != nil { return .instr }
-		return l.range(of: #"\[\d{2}:\d{2}\.\d{2}\]"#, options: .regularExpression) != nil ? .lrc : .txt
+		let r = NSRange(location: 0, length: (l as NSString).length)
+		if Self.instrRe.firstMatch(in: l, range: r) != nil { return .instr }
+		return Self.lrcRe.firstMatch(in: l, range: r) != nil ? .lrc : .txt
 	}
+	private static let instrRe = try! NSRegularExpression(pattern: #"\[instrumental:true\]|\[\d{2}:\d{2}\.\d{2}\]\s*(?:\[instrumental\]|\(instrumental\))"#, options: .caseInsensitive)
+	private static let lrcRe = try! NSRegularExpression(pattern: #"\[\d{2}:\d{2}\.\d{2}\]"#)
 
 	var channelsLabel: String { info.channels == 1 ? "Mono" : info.channels == 2 ? "Stereo" : "\(info.channels)ch" }
 	var formatHelp: String { formatLabel.contains("/") ? "Sample rate in kHz / bit depth" : "Sample rate in kHz" }

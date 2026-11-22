@@ -60,12 +60,18 @@ final class Summaries: @unchecked Sendable {   // state behind `lock`
 		for k in albums.keys where k.hasPrefix(prefix) && !keep.contains(k) { albums[k] = nil; dirty = true }
 	}
 
+	/// Encodes outside the lock: the store of a large library is over 100 MB.
 	func save() {
-		lock.lock(); defer { lock.unlock() }
-		guard dirty else { return }
+		lock.lock()
+		guard dirty else { lock.unlock(); return }
+		let store = Store(version: Self.version, albums: albums); dirty = false
+		lock.unlock()
 		let enc = PropertyListEncoder(); enc.outputFormat = .binary
-		guard let d = try? enc.encode(Store(version: Self.version, albums: albums)) else { return }
 		try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-		if (try? d.write(to: url, options: .atomic)) != nil { dirty = false }
+		guard let d = try? enc.encode(store), (try? d.write(to: url, options: .atomic)) != nil else { lock.lock(); dirty = true; lock.unlock(); return }
 	}
+
+	private let saver = DispatchQueue(label: "tagwright.summaries", qos: .utility)
+	/// Saves in the background, a few seconds later: one write for a burst of changes.
+	func saveSoon() { saver.asyncAfter(deadline: .now() + 3) { [self] in save() } }
 }

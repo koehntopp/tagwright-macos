@@ -9,7 +9,7 @@ struct CardView: View {
 	@State private var over = false
 
 	var body: some View {
-		let s = album.status
+		let s = app.status(album)
 		VStack(alignment: .leading, spacing: 0) {
 			Color.clear.aspectRatio(1, contentMode: .fit)
 				.overlay { CoverFill(album: album) }
@@ -252,7 +252,7 @@ struct AlbumTable: View {
 					switch c {
 					case .artist:
 						HStack(spacing: 8) {
-							Circle().fill(a.status.strong).frame(width: 8, height: 8).overlay(Circle().stroke(.white)).help(a.status.label)
+							Circle().fill(app.status(a).strong).frame(width: 8, height: 8).overlay(Circle().stroke(.white)).help(app.status(a).label)
 							Text(a.artist.isEmpty ? "No artist" : a.artist).lineLimit(1)
 						}
 					case .name: Text(a.title).fontWeight(.medium).lineLimit(1)

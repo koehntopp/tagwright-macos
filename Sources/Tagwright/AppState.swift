@@ -23,6 +23,9 @@ final class AppState: ObservableObject {
 
 	@AppStorage("source") var source = Source.staging   // remembered, as the web app does (localStorage)
 	@Published var albums: [Album] = []
+	/// Album.status reads every track's tags (names, lyrics, issues): computed when an album is loaded, not per redraw.
+	private(set) var statuses: [String: Status] = [:]
+	func status(_ a: Album) -> Status { statuses[a.id] ?? a.status }
 	@Published var scanning = false
 	@Published var filter = Filter.all
 	@Published var sort = SortKey.newest
@@ -73,12 +76,13 @@ final class AppState: ObservableObject {
 	var selected: Album? { albums.first { $0.id == selection } }
 
 	var counts: [Filter: Int] {
-		[.all: albums.count, .needs: albums.filter { $0.status == .needs }.count,
-		 .ready: albums.filter { $0.status == .ready }.count, .fixed: albums.filter { $0.status == .fixed }.count]
+		var c: [Filter: Int] = [.all: albums.count, .needs: 0, .ready: 0, .fixed: 0]
+		for s in statuses.values { c[Filter(rawValue: s.rawValue)!, default: 0] += 1 }
+		return c
 	}
 
 	var shown: [Album] {
-		var a = albums.filter { filter == .all || $0.status.rawValue == filter.rawValue }
+		var a = albums.filter { filter == .all || status($0).rawValue == filter.rawValue }
 		let q = search.lowercased()
 		if !q.isEmpty { a = a.filter { [$0.name, $0.title, $0.artist, $0.discogsID, $0.mbid].contains { $0.lowercased().contains(q) } } }
 		if listView, let t = tableSort { return a.sorted { AlbumColumn.less(t.key, t.asc, $0, $1) } }
@@ -88,7 +92,7 @@ final class AppState: ObservableObject {
 		case .newest: a.sort { (mtimes[$0.id] ?? .distantPast) > (mtimes[$1.id] ?? .distantPast) }
 		case .title: a.sort(by: byTitle)
 		case .artist: a.sort { let c = $0.artist.localizedCompare($1.artist); return c == .orderedSame ? byTitle($0, $1) : c == .orderedAscending }
-		case .status: a.sort { order[$0.status]! == order[$1.status]! ? byTitle($0, $1) : order[$0.status]! < order[$1.status]! }
+		case .status: a.sort { let x = order[status($0)]!, y = order[status($1)]!; return x == y ? byTitle($0, $1) : x < y }
 		}
 		return a
 	}
@@ -123,7 +127,7 @@ final class AppState: ObservableObject {
 		scanning = true
 		let staging = source == .staging, minC = minCover, sums = summaries
 		Task {
-			let result = await Task.detached(priority: .userInitiated) { () -> ([Album], [String: Date]) in
+			let result = await Task.detached(priority: .userInitiated) { () -> ([Album], [String: Date], [String: Status]) in
 				let folders = Scanner.albumFolders(root: root, staging: staging)
 				var out = [Album?](repeating: nil, count: folders.count)
 				var dates: [String: Date] = [:]
@@ -139,24 +143,25 @@ final class AppState: ObservableObject {
 				}
 				sums.prune(root: root, keep: Set(dates.keys))
 				sums.save()
-				return (out.compactMap { $0 }, dates)
+				let all = out.compactMap { $0 }
+				return (all, dates, Dictionary(all.map { ($0.id, $0.status) }, uniquingKeysWith: { a, _ in a }))
 			}.value
-			albums = result.0; mtimes = result.1; scanning = false
+			statuses = result.2; albums = result.0; mtimes = result.1; scanning = false
 			if selected == nil { selection = shown.first?.id }
 		}
 	}
 
 	func switchSource(_ s: Source) {
-		source = s; selection = nil; albums = []; rescan()
+		source = s; selection = nil; albums = []; statuses = [:]; rescan()
 	}
 
 	func refresh(_ a: Album) {
 		guard let i = albums.firstIndex(where: { $0.id == a.id }) else { return }
 		let files = albumFiles(a.url)
 		if let n = Scanner.loadAlbum(folder: a.url, files: files, minCover: minCover) {
-			albums[i] = n
-			summaries.put(n, sig: Summaries.signature(folder: a.url, files: files)); summaries.save()
-		} else { albums.remove(at: i) }
+			statuses[n.id] = n.status; albums[i] = n
+			summaries.put(n, sig: Summaries.signature(folder: a.url, files: files)); summaries.saveSoon()
+		} else { statuses[a.id] = nil; albums.remove(at: i) }
 	}
 
 	private func albumFiles(_ dir: URL) -> [URL] {
@@ -233,7 +238,7 @@ final class AppState: ObservableObject {
 				AppLog.app("moved to the library: \(album.name) (\(album.tracks.count) files)")
 				if del { leftover = Leftover(folder: album.url, items: leftoverItems(album.url)) }
 				sheet = del ? .leftover : nil
-				albums.removeAll { $0.id == album.id }; selection = nil
+				albums.removeAll { $0.id == album.id }; statuses[album.id] = nil; selection = nil
 				notify("Moved to the library", kind: .success)
 			} catch { dialogError = error.localizedDescription; AppLog.app("move failed: \(album.name): \(error.localizedDescription)", .error) }
 		}

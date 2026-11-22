@@ -31,8 +31,15 @@ enum Slug {
 		return out
 	}
 
-	private static func sub(_ s: String, _ pattern: String, _ f: (NSTextCheckingResult, NSString) -> String?) -> String {
-		let re = try! NSRegularExpression(pattern: pattern), ns = s as NSString
+	private static func re(_ p: String) -> NSRegularExpression { try! NSRegularExpression(pattern: p) }
+	private static let apos = re("'+"), named = re("&([A-Za-z0-9]+);"), dec = re("&#(\\d+);"), hex = re("&#x([\\da-fA-F]+);"),
+		digitComma = re("(?<=\\d),(?=\\d)"), nonWord = re("[^-a-zA-Z0-9]+"), dashes = re("-{2,}")
+	private static func rep(_ s: String, _ r: NSRegularExpression, _ t: String) -> String {
+		r.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: (s as NSString).length), withTemplate: t)
+	}
+
+	private static func sub(_ s: String, _ re: NSRegularExpression, _ f: (NSTextCheckingResult, NSString) -> String?) -> String {
+		let ns = s as NSString
 		var out = "", last = 0
 		for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
 			out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
@@ -46,17 +53,19 @@ enum Slug {
 	static let reserved: Set<String> = Set(["CON", "PRN", "AUX", "NUL"] + (1...9).flatMap { ["COM\($0)", "LPT\($0)"] })
 
 	static func clean(_ text: String) -> String {
-		var s = text.replacingOccurrences(of: "'+", with: "-", options: .regularExpression)
+		var s = rep(text, apos, "-")
 		s = s.decomposedStringWithCompatibilityMapping
 		if !s.unicodeScalars.allSatisfy(\.isASCII) { s = unidecode(s) }
-		s = sub(s, "&([A-Za-z0-9]+);") { m, ns in tables.entities[ns.substring(with: m.range(at: 1))].flatMap { char($0) } }
-		s = sub(s, "&#(\\d+);") { m, ns in char(UInt32(ns.substring(with: m.range(at: 1)))) }
-		s = sub(s, "&#x([\\da-fA-F]+);") { m, ns in char(UInt32(ns.substring(with: m.range(at: 1)), radix: 16)) }
+		if s.contains("&") {
+			s = sub(s, named) { m, ns in tables.entities[ns.substring(with: m.range(at: 1))].flatMap { char($0) } }
+			s = sub(s, dec) { m, ns in char(UInt32(ns.substring(with: m.range(at: 1)))) }
+			s = sub(s, hex) { m, ns in char(UInt32(ns.substring(with: m.range(at: 1)), radix: 16)) }
+		}
 		s = s.decomposedStringWithCompatibilityMapping
-		s = s.replacingOccurrences(of: "'+", with: "", options: .regularExpression)
-		s = s.replacingOccurrences(of: "(?<=\\d),(?=\\d)", with: "", options: .regularExpression)
-		s = s.replacingOccurrences(of: "[^-a-zA-Z0-9]+", with: "-", options: .regularExpression)
-		s = s.replacingOccurrences(of: "-{2,}", with: "-", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+		s = rep(s, apos, "")
+		s = rep(s, digitComma, "")
+		s = rep(s, nonWord, "-")
+		s = rep(s, dashes, "-").trimmingCharacters(in: CharacterSet(charactersIn: "-"))
 		s = s.replacingOccurrences(of: "-", with: "_")
 		if s.utf8.count > 255 { s = String(decoding: s.utf8.prefix(255), as: UTF8.self) }   // pathvalidate max_len (ASCII here)
 		return reserved.contains(s.uppercased()) ? s + "_" : s   // pathvalidate: a reserved device name gets "_"
