@@ -87,6 +87,23 @@ final class Mp3Tests: XCTestCase {
 		XCTAssertEqual(try Pipeline.stripID3v1([u], log: { _ in }), 0, "the FLAC ID3v1 fix leaves MP3 alone")
 	}
 
+	/// ADR 0076: as `rsgain easy`, every folder is one album, so each disc folder gets its own album gain.
+	func testAlbumGainPerDiscFolder() throws {
+		let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tw-discs-\(UUID().uuidString)")
+		addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+		var files: [URL] = []
+		for (disc, name) in [("Disc 1", "v23.mp3"), ("Disc 2", "vbr.mp3")] {
+			let d = dir.appendingPathComponent(disc)
+			try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+			try FileManager.default.copyItem(at: fixtures.appendingPathComponent(name), to: d.appendingPathComponent(name))
+			files.append(d.appendingPathComponent(name))
+		}
+		try Pipeline.replayGain(files: files, log: { _ in })
+		let tags = try files.map { try AudioFile(url: $0).tags }
+		for t in tags { XCTAssertEqual(t.first("REPLAYGAIN_ALBUM_GAIN"), t.first("REPLAYGAIN_TRACK_GAIN"), "a one-track disc: album gain = track gain") }
+		XCTAssertNotEqual(tags[0].first("REPLAYGAIN_ALBUM_GAIN"), tags[1].first("REPLAYGAIN_ALBUM_GAIN"))
+	}
+
 	func testNamesKeepTheExtension() throws {
 		let u = try copy("v23.mp3")
 		let dir = u.deletingLastPathComponent().appendingPathComponent("tw-album-\(UUID().uuidString)")

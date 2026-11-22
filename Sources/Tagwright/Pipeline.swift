@@ -266,20 +266,26 @@ enum Pipeline {
 		!files.isEmpty && files.allSatisfy { !((try? AudioFile(url: $0))?.tags.first("REPLAYGAIN_ALBUM_GAIN") ?? "").isEmpty }
 	}
 
+	/// As `rsgain easy`: every folder is one album, so each disc folder gets its own album gain (ADR 0076).
 	static func replayGain(files: [URL], log: Log) throws {
 		if hasAlbumGain(files) { log("Album gain already on every file: skipped"); return }
-		let r = try replayGainValues(files: files)
-		for (f, t) in zip(files, r.tracks) {
-			log(String(format: "%+.2f dB  %@", t.gain, f.lastPathComponent))
-			try update([f]) { _, tags in
-				tags["REPLAYGAIN_TRACK_GAIN"] = [String(format: "%.2f dB", t.gain)]
-				tags["REPLAYGAIN_TRACK_PEAK"] = [String(format: "%.6f", t.peak)]
-				tags["REPLAYGAIN_ALBUM_GAIN"] = [String(format: "%.2f dB", r.albumGain)]
-				tags["REPLAYGAIN_ALBUM_PEAK"] = [String(format: "%.6f", r.albumPeak)]
-				tags["REPLAYGAIN_REFERENCE_LOUDNESS"] = nil   // rsgain writes none
+		var folders: [URL] = [], byFolder: [URL: [URL]] = [:]
+		for f in files { let d = f.deletingLastPathComponent(); if byFolder[d] == nil { folders.append(d) }; byFolder[d, default: []].append(f) }
+		for d in folders {
+			let group = byFolder[d]!
+			let r = try replayGainValues(files: group)
+			for (f, t) in zip(group, r.tracks) {
+				log(String(format: "%+.2f dB  %@", t.gain, f.lastPathComponent))
+				try update([f]) { _, tags in
+					tags["REPLAYGAIN_TRACK_GAIN"] = [String(format: "%.2f dB", t.gain)]
+					tags["REPLAYGAIN_TRACK_PEAK"] = [String(format: "%.6f", t.peak)]
+					tags["REPLAYGAIN_ALBUM_GAIN"] = [String(format: "%.2f dB", r.albumGain)]
+					tags["REPLAYGAIN_ALBUM_PEAK"] = [String(format: "%.6f", r.albumPeak)]
+					tags["REPLAYGAIN_REFERENCE_LOUDNESS"] = nil   // rsgain writes none
+				}
 			}
+			log(String(format: "Album gain %+.2f dB", r.albumGain) + (folders.count > 1 ? "  (\(d.lastPathComponent))" : ""))
 		}
-		log(String(format: "Album gain %+.2f dB", r.albumGain))
 	}
 
 	/// Embedded JPEG/PNG pictures larger than `max` on either side are scaled down (ADR 0042/0074); returns the

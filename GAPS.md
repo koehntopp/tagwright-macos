@@ -13,7 +13,7 @@ Done 2026-11-22:
 - Artwork sidecars (0091, `Artwork.swift`): folder.jpg and numbered Artwork/ files at Move to library and after a watcher move, listed in the Move dialog, never overwritten.
 - MusicBrainz release lookups cached on disk for 30 days (~/Library/Caches/Tagwright/musicbrainz).
 - lrclib pacing, circuit breaker and retry rounds (`LrcPacer`).
-- ReplayGain with the web app's rsgain preset (-14 LUFS, clipping protection at -1 dBTP, true peak); equal to rsgain on a real album (`ReplayGainTests`, `TW_RSGAIN`). The web app has no settings for the RG target, the RG skip or the language lookup (pipeline Config defaults), so none are added.
+- ReplayGain with the web app's rsgain preset (-14 LUFS, clipping protection at -1 dBTP, true peak); equal to rsgain on a real album (`ReplayGainTests`, `TW_RSGAIN`). As `rsgain easy`, every disc folder is its own album (ADR 0076). Checked end to end against the web pipeline (drcalc, rsgain, fpscan, fixtags, lyrics, naming) on two copies of a FLAC, a 3-disc and an MP3 album: tags equal except fingerprints (~0.03 % of bits) and true peaks (5th decimal). The web app has no settings for the RG target, the RG skip or the language lookup (pipeline Config defaults), so none are added.
 - Logging (0064-0066, `AppLog.swift`): app, pipeline and library lines to ~/Library/Logs/Tagwright/tagwright.log and the unified log; `logLevel` default = LOG_LEVEL. SYSLOG_HOST not ported (Console takes that role on a Mac).
 
 ## Reverse-analysis comparison (RE-cue output vs. native, 2026-11-22)
