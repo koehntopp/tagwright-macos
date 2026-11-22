@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Security
 
 /// Secrets live in the Keychain only (ADR 0007).
@@ -320,12 +321,17 @@ struct MBRelease {
 enum MusicBrainz {
 	static let limiter = RateLimiter(interval: 1.1)
 	nonisolated(unsafe) static var cache: [String: Any] = [:]
+	static let diskCache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Tagwright/musicbrainz")
 
 	static func get(_ path: String, _ q: [String: String]) async throws -> [String: Any] {
 		var c = URLComponents(string: "https://musicbrainz.org/ws/2/\(path)")!
 		c.queryItems = q.map { URLQueryItem(name: $0.key, value: $0.value) } + [URLQueryItem(name: "fmt", value: "json")]
 		let key = c.url!.absoluteString
 		if let hit = cache[key] as? [String: Any] { return hit }
+		// Release lookups by ID are kept on disk for 30 days (musicbrainz.py CACHE_DAYS); searches are always asked.
+		let file = path.hasPrefix("release/") ? diskCache.appendingPathComponent(SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined() + ".json") : nil
+		if let file, let m = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate, -m.timeIntervalSinceNow < 30 * 86400,
+			let d = try? Data(contentsOf: file), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { cache[key] = j; return j }
 		var r = URLRequest(url: c.url!)
 		r.setValue("Tagwright/1.0 (+https://github.com/koehntopp/tagwright)", forHTTPHeaderField: "User-Agent")
 		for attempt in 0..<4 {
@@ -334,7 +340,9 @@ enum MusicBrainz {
 			switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
 			case 200:
 				let j = (try JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
-				cache[key] = j; return j
+				cache[key] = j
+				if let file { try? FileManager.default.createDirectory(at: diskCache, withIntermediateDirectories: true); try? d.write(to: file, options: .atomic) }
+				return j
 			case 429, 503 where attempt < 3: try await Task.sleep(for: .seconds(5)); continue
 			case 404: throw StepError("MusicBrainz: not found")
 			case let s: throw StepError("MusicBrainz answered \(s)")
