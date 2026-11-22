@@ -23,7 +23,7 @@ final class AppState: ObservableObject {
 	@Published var filter = Filter.all
 	@Published var sort = SortKey.newest
 	@Published var search = ""
-	@Published var selection: String?
+	@Published var selection: String? { didSet { if let a = selected, !a.full { refresh(a) } } }
 	@Published var job: String?
 	@Published var logLines: [String] = []
 	@Published var runningStep: StepID?
@@ -44,6 +44,7 @@ final class AppState: ObservableObject {
 	}
 
 	let library = LibraryWatcher()
+	let summaries = Summaries(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Tagwright/summaries.plist"))
 	private var task: Task<Void, Never>?
 	private var player: AVPlayer?
 	private var thumbs = NSCache<NSString, NSImage>()
@@ -104,7 +105,7 @@ final class AppState: ObservableObject {
 	func rescan() {
 		guard let root, !scanning else { if root == nil { sheet = .settings }; return }
 		scanning = true
-		let staging = source == .staging, minC = minCover
+		let staging = source == .staging, minC = minCover, sums = summaries
 		Task {
 			let result = await Task.detached(priority: .userInitiated) { () -> ([Album], [String: Date]) in
 				let folders = Scanner.albumFolders(root: root, staging: staging)
@@ -114,10 +115,14 @@ final class AppState: ObservableObject {
 				DispatchQueue.concurrentPerform(iterations: folders.count) { i in
 					let (dir, extra) = folders[i]
 					let files = staging ? extra : Scanner.flacs(in: dir, recursive: false) + extra
-					let a = Scanner.loadAlbum(folder: dir, files: files, minCover: minC)
+					let sig = Summaries.signature(folder: dir, files: files)
+					var a = sums.album(folder: dir, sig: sig, minCover: minC)
+					if a == nil, let n = Scanner.loadAlbum(folder: dir, files: files, minCover: minC) { sums.put(n, sig: sig); a = n }
 					let d = (try? dir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
 					lock.lock(); out[i] = a; dates[dir.path] = d; lock.unlock()
 				}
+				sums.prune(root: root, keep: Set(dates.keys))
+				sums.save()
 				return (out.compactMap { $0 }, dates)
 			}.value
 			albums = result.0; mtimes = result.1; scanning = false
@@ -131,8 +136,15 @@ final class AppState: ObservableObject {
 
 	func refresh(_ a: Album) {
 		guard let i = albums.firstIndex(where: { $0.id == a.id }) else { return }
-		let files = source == .staging ? Scanner.flacs(in: a.url, recursive: true) : Scanner.flacs(in: a.url, recursive: false) + Scanner.flacs(in: a.url, recursive: false, discsOnly: true)
-		if let n = Scanner.loadAlbum(folder: a.url, files: files, minCover: minCover) { albums[i] = n } else { albums.remove(at: i) }
+		let files = albumFiles(a.url)
+		if let n = Scanner.loadAlbum(folder: a.url, files: files, minCover: minCover) {
+			albums[i] = n
+			summaries.put(n, sig: Summaries.signature(folder: a.url, files: files)); summaries.save()
+		} else { albums.remove(at: i) }
+	}
+
+	private func albumFiles(_ dir: URL) -> [URL] {
+		source == .staging ? Scanner.flacs(in: dir, recursive: true) : Scanner.flacs(in: dir, recursive: false) + Scanner.flacs(in: dir, recursive: false, discsOnly: true)
 	}
 
 	// MARK: pipeline jobs (ADR 0008, 0051)
@@ -174,6 +186,8 @@ final class AppState: ObservableObject {
 
 	func move(_ album: Album) {
 		guard !libraryPath.isEmpty else { sheet = .settings; return }
+		// The move writes cover.jpg from the embedded cover: never from a summary thumbnail.
+		guard let album = album.full ? album : Scanner.loadAlbum(folder: album.url, files: albumFiles(album.url), minCover: minCover) else { return }
 		let lib = URL(fileURLWithPath: libraryPath)
 		job = "Moving \(album.title)"
 		let del = deleteAfterMove

@@ -3,7 +3,7 @@ import Foundation
 /// Vorbis comments, keys upper-cased (ADR 0005): key -> values in file order.
 typealias Tags = [String: [String]]
 
-struct StreamInfo {
+struct StreamInfo: Codable {
 	var sampleRate = 0, channels = 0, bits = 0
 	var totalSamples: UInt64 = 0
 	var duration: Double { sampleRate > 0 ? Double(totalSamples) / Double(sampleRate) : 0 }

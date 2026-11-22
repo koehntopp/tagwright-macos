@@ -17,6 +17,14 @@ enum ImageSize {
 		return NSImage(cgImage: c, size: NSSize(width: c.width, height: c.height))
 	}
 
+	/// JPEG copy scaled down to `max` on the longer side (never up).
+	static func jpeg(_ d: Data, max: Int, quality: Double) -> Data? {
+		guard let s = CGImageSourceCreateWithData(d as CFData, nil) else { return nil }
+		let o: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: max]
+		guard let c = CGImageSourceCreateThumbnailAtIndex(s, 0, o as CFDictionary) else { return nil }
+		return NSBitmapImageRep(cgImage: c).representation(using: .jpeg, properties: [.compressionFactor: quality])
+	}
+
 	/// Cover for embedding: scaled down to `max` on the longer side (ADR 0042), JPEG unless the source is PNG at size.
 	static func embeddable(_ d: Data, max: Int) -> (Data, String, Int, Int)? {
 		guard let s = CGImageSourceCreateWithData(d as CFData, nil), let (w, h) = of(d) else { return nil }

@@ -126,6 +126,7 @@ struct Album: Identifiable {
 	var id: String { url.path }
 	var name: String { url.lastPathComponent }
 	var minCover = 1000
+	var full = true   // false: from the summary cache (thumbnail cover, no artwork)
 
 	private func all(_ k: String) -> [String] { tracks.map { $0.tags.first(k) } }
 	private func first(_ keys: String...) -> String {
