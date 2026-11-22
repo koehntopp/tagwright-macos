@@ -220,9 +220,7 @@ enum Lrc {
 		guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { throw StepError("enter a title to search for") }
 		var c = URLComponents(string: "https://lrclib.net/api/search")!
 		c.queryItems = [URLQueryItem(name: "track_name", value: title.trimmingCharacters(in: .whitespaces))] + (artist.trimmingCharacters(in: .whitespaces).isEmpty ? [] : [URLQueryItem(name: "artist_name", value: artist.trimmingCharacters(in: .whitespaces))])
-		var req = URLRequest(url: c.url!)
-		req.setValue("Tagwright/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
-		req.timeoutInterval = 15
+		let req = request(c.url!, timeout: 15)
 		let d: Data, resp: URLResponse
 		do { (d, resp) = try await URLSession.shared.data(for: req) } catch is CancellationError { throw CancellationError() } catch { throw StepError("lrclib.net could not be reached: \(error.localizedDescription)") }
 		let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -235,26 +233,86 @@ enum Lrc {
 		}
 	}
 
-	/// One lrclib /get lookup (browser-style retry on 429/5xx once, honouring Retry-After).
-	static func lrclib(_ params: [String: String]) async -> Lookup {
+	static let userAgent = "Tagwright/0.2 (+https://github.com/koehntopp/tagwright)"
+	static let appID = "Nm2UKEDqSxmkysVsuRQhjw9hWSYkbleD8mGFP7WcBOo"   // lrclib.py LRCLIB_APP_ID
+	static func request(_ url: URL, timeout: Double) -> URLRequest {
+		var r = URLRequest(url: url); r.timeoutInterval = timeout
+		r.setValue(userAgent, forHTTPHeaderField: "User-Agent"); r.setValue(appID, forHTTPHeaderField: "Lrclib-App-Id")
+		return r
+	}
+
+	/// lrclib.py get(): one lookup through the shared pacer, up to 4 attempts. `.failed` when lrclib kept failing
+	/// or the circuit is open (the retry rounds take those tracks again).
+	static func get(_ pacer: LrcPacer, _ params: [String: String]) async -> Lookup {
+		if await pacer.isDown { return .failed }
 		var c = URLComponents(string: "https://lrclib.net/api/get")!
 		c.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-		var req = URLRequest(url: c.url!)
-		req.setValue("Tagwright/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
-		req.timeoutInterval = 20
-		for attempt in 0..<3 {
+		let req = request(c.url!, timeout: 10)
+		for attempt in 0..<4 {
+			if Task.isCancelled { return .failed }
+			let started = await pacer.acquire()
+			var retryAfter: Double?, limited = false
 			do {
 				let (d, resp) = try await URLSession.shared.data(for: req)
-				guard let h = resp as? HTTPURLResponse else { return .failed }
-				if h.statusCode == 200 { return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]).map { .found($0) } ?? .failed }
-				if h.statusCode == 404 { return .notFound }
-				if h.statusCode == 429 || h.statusCode >= 500, attempt < 2 {
-					let wait = Double(h.value(forHTTPHeaderField: "Retry-After") ?? "") ?? Double(attempt + 1)
-					try await Task.sleep(nanoseconds: UInt64(min(wait, 30) * 1e9)); continue
+				await pacer.release()
+				let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+				switch code {
+				case 200:
+					await pacer.success()
+					return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]).map { .found($0) } ?? .failed
+				case 404: await pacer.success(); return .notFound
+				case 401: await pacer.rejectCredentials(); return .failed
+				default:
+					limited = code == 429
+					if [429, 503].contains(code), let h = Double((resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After") ?? "") {
+						retryAfter = h * (1 + Double.random(in: 0...0.3))   // lrclib: honour Retry-After plus up to 30 % jitter
+					}
 				}
-				return .failed
-			} catch is CancellationError { return .failed } catch { if attempt == 2 { return .failed } }
+			} catch { await pacer.release(); if error is CancellationError { return .failed } }
+			await pacer.failure(startedAt: started, retryAfter: retryAfter, rateLimited: limited)
+			if await pacer.isDown { break }
+			if !limited, retryAfter == nil, attempt < 3 {   // 5xx / network error: plain backoff
+				try? await Task.sleep(for: .seconds(pow(2, Double(attempt)) * (1 + Double.random(in: 0...0.3))))
+			}
 		}
 		return .failed
 	}
+
+}
+
+/// lrclib.py Pacer: one request in flight, each starting 0.5 s (+ up to 0.25 s) after the previous one finished.
+/// A 429 doubles the interval (up to 8 s), ten successes in a row shrink it again; Retry-After sets a floor. Five
+/// failures in a row with no success for 60 s (or a rejected app id) open the circuit.
+actor LrcPacer {
+	private var interval = 0.5, nextStart = Date.distantPast, floorUntil = Date.distantPast, raisedAt = Date.distantPast
+	private var successes = 0, failStreak = 0, lastSuccess = Date(), authFailed = false
+	private var busy = false
+	var currentInterval: Double { interval }
+
+	func acquire() async -> Date {
+		while busy { try? await Task.sleep(for: .milliseconds(20)) }
+		busy = true
+		let start = max(Date(), nextStart, floorUntil)
+		if start > Date() { try? await Task.sleep(for: .seconds(start.timeIntervalSinceNow)) }
+		return start
+	}
+	func release() {
+		nextStart = max(nextStart, Date().addingTimeInterval(interval + Double.random(in: 0...0.25)))
+		busy = false
+	}
+	func failure(startedAt: Date, retryAfter: Double?, rateLimited: Bool) {
+		successes = 0; failStreak += 1
+		if rateLimited, startedAt > raisedAt, interval < 8 {
+			interval = min(interval * 2, 8); raisedAt = Date(); nextStart = max(nextStart, Date().addingTimeInterval(interval))
+		}
+		if let r = retryAfter ?? (rateLimited ? 1 : nil) { floorUntil = max(floorUntil, Date().addingTimeInterval(min(r, 300))) }
+	}
+	func success() {
+		failStreak = 0; lastSuccess = Date(); successes += 1
+		if successes >= 10, interval > 0.5 { interval = max(0.5, interval * 0.75); successes = 0 }
+	}
+	func rejectCredentials() { authFailed = true }
+	var isDown: Bool { authFailed || (failStreak >= 5 && -lastSuccess.timeIntervalSinceNow >= 60) }
+	/// Before a retry round: forget the failure streak, keep the learned interval.
+	func closeCircuit() { failStreak = 0; lastSuccess = Date(); authFailed = false; floorUntil = .distantPast }
 }

@@ -254,24 +254,42 @@ enum Pipeline {
 
 	// MARK: 5. lyrics from LRCLIB (ADR 0021)
 
-	static func lyrics(album: Album, log: Log) async throws {
+	/// lyrics.py run(): every track through one lrclib pacer; tracks lrclib did not answer are tried again after
+	/// 30 s and after 60 s (lrclib.py RETRY_ROUNDS), then reported.
+	static func lyrics(album: Album, log: Log, cooldowns: [Double] = [30, 60]) async throws {
 		var stats = ["new": 0, "fixed": 0, "failed": 0, "none": 0]
-		for t in album.tracks {
-			try Task.checkCancellation()
-			let tags = (try? AudioFile(url: t.url).tags) ?? t.tags
-			let r = await Lrc.decide(tags: tags, length: t.info.duration, log: log, lookup: Lrc.lrclib)
-			switch r.action {
-			case "new", "fixed", "fix":
-				try update([t.url]) { _, tags in tags["LYRICS"] = [r.lyrics]; tags["UNSYNCEDLYRICS"] = nil }
-				stats[r.action == "new" ? "new" : "fixed", default: 0] += 1
-				log((r.kind == "instrumental" ? "instrumental  " : r.action == "fix" ? "lyrics fixed  " : "\(r.kind.uppercased()) added  ") + t.title)
-			case "failed": stats["failed", default: 0] += 1; log("lrclib did not answer  \(t.title)")
-			case "error": log("skip \(t.url.lastPathComponent): ALBUMARTIST/ARTIST or TITLE is empty")
-			default: if r.kind == "none" { stats["none", default: 0] += 1 }
+		let pacer = LrcPacer()
+		func pass(_ tracks: [Track]) async throws -> [Track] {
+			var failed: [Track] = []
+			for t in tracks {
+				try Task.checkCancellation()
+				let tags = (try? AudioFile(url: t.url).tags) ?? t.tags
+				let r = await Lrc.decide(tags: tags, length: t.info.duration, log: log, lookup: { await Lrc.get(pacer, $0) })
+				switch r.action {
+				case "new", "fixed", "fix":
+					try update([t.url]) { _, tags in tags["LYRICS"] = [r.lyrics]; tags["UNSYNCEDLYRICS"] = nil }
+					stats[r.action == "new" ? "new" : "fixed", default: 0] += 1
+					log((r.kind == "instrumental" ? "instrumental  " : r.action == "fix" ? "lyrics fixed  " : "\(r.kind.uppercased()) added  ") + t.title)
+				case "failed": failed.append(t)
+				case "error": log("skip \(t.url.lastPathComponent): ALBUMARTIST/ARTIST or TITLE is empty")
+				default: if r.kind == "none" { stats["none", default: 0] += 1 }
+				}
+				if await pacer.isDown, r.action == "failed", failed.count == 1 { log("lrclib looks down; deferring the remaining tracks to the retry rounds") }
 			}
+			return failed
 		}
-		log("lyrics: \(stats["new"]!) new, \(stats["fixed"]!) fixed, \(stats["none"]!) not found" + (stats["failed"]! > 0 ? ", \(stats["failed"]!) lrclib failures (run again)" : ""))
+		var failed = try await pass(album.tracks)
+		for cooldown in cooldowns where !failed.isEmpty {
+			log("\(failed.count) tracks got no answer from lrclib; retrying in \(Int(cooldown)) s")
+			try await Task.sleep(for: .seconds(cooldown))
+			await pacer.closeCircuit()
+			failed = try await pass(failed)
+		}
+		for t in failed { log("lrclib did not answer  \(t.title)") }
+		stats["failed"] = failed.count
+		log("lyrics: \(stats["new"]!) new, \(stats["fixed"]!) fixed, \(stats["none"]!) not found" + (failed.isEmpty ? "" : ", \(failed.count) lrclib failures (run again)"))
 	}
+
 
 	// MARK: 6. filenames (ADR 0010)
 
