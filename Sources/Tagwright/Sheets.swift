@@ -75,7 +75,7 @@ struct SettingsSheet: View {
 		app.minCover = mn; app.maxCover = mx; app.deleteAfterMove = del
 		if !key.isEmpty { Keychain.set("discogs", key) }
 		app.library.settings = draft
-		app.notify("Settings saved", kind: .success)
+		app.notify("Settings saved", kind: .success); AppLog.app("settings saved")   // never the key itself (ADR 0007)
 		app.sheet = nil; app.selection = nil; app.rescan()
 	}
 }
@@ -301,6 +301,7 @@ struct LyricsSheet: View {
 	func save() {
 		let t = text
 		app.sheet = nil
+		AppLog.app(t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "lyrics removed: \(album.name)/\(track.url.lastPathComponent)" : "lyrics edited (\(t.count) chars): \(album.name)/\(track.url.lastPathComponent)")
 		app.writeTags(album, files: [track.url], done: "Track saved") { _, tags in
 			tags["LYRICS"] = t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : [t]
 		}

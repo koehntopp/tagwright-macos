@@ -95,7 +95,7 @@ struct LibraryStatus {
 		return settings.interval
 	}
 
-	private func note(_ s: String) { status.recent.insert((Date(), s), at: 0); if status.recent.count > 100 { status.recent.removeLast() } }
+	private func note(_ s: String) { status.recent.insert((Date(), s), at: 0); if status.recent.count > 100 { status.recent.removeLast() }; AppLog.library(s) }
 
 	// MARK: one pass
 

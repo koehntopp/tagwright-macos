@@ -354,7 +354,9 @@ enum Pipeline {
 			if fm.fileExists(atPath: dest.path) && !Naming.sameName(dest.lastPathComponent, t.url.lastPathComponent) { log("skip \(t.url.lastPathComponent): \(new) already exists"); continue }
 			try fm.moveItem(at: t.url, to: dest)
 			log("renamed \(t.url.lastPathComponent) -> \(new)"); n += 1
+			AppLog.app("renamed \(t.url.lastPathComponent) -> \(new)", .debug)
 		}
+		if n > 0 { AppLog.app("renamed \(n) file(s) in \(album.name)") }
 		return n
 	}
 

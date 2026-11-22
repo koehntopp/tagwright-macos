@@ -61,6 +61,7 @@ final class AppState: ObservableObject {
 	private var mtimes: [String: Date] = [:]
 
 	init() {
+		AppLog.app("Tagwright started (log level \(AppLog.level.name))")
 		library.setRoot(libraryPath)
 		library.onMoved = { [weak self] in if self?.source == .library { self?.rescan() } }
 	}
@@ -171,12 +172,14 @@ final class AppState: ObservableObject {
 		let want = steps ?? [.dr, .replaygain, .fingerprints, .tags, .lyrics, .filenames]
 		job = "Fixing \(album.title)"
 		jobState = .running
+		AppLog.app("run started: \(album.name) (\((steps ?? []).map(\.label).joined(separator: ", ").isEmpty ? "all steps" : (steps ?? []).map(\.label).joined(separator: ", ")))")
 		notify(steps?.count == 1 ? "Running \(steps![0].label) on \(album.title)…" : "Running fixes on \(album.title)…", kind: .success)
 		var failed = false, stopped = false
 		task = Task {
 			defer {
 				job = nil; runningStep = nil; refresh(selected ?? album); task = nil
 				jobState = failed ? .failed : stopped ? .stopped : .idle
+				AppLog.app("run \(failed ? "finished with errors" : stopped ? "stopped" : "finished"): \(album.name)", failed ? .warning : .info)
 				notify(failed ? "Run finished with errors" : stopped ? "Run stopped" : "Run finished", kind: failed ? .error : stopped ? .warning : .success)
 			}
 			var cur = album
@@ -207,6 +210,7 @@ final class AppState: ObservableObject {
 	func stop() { task?.cancel() }
 
 	func appendLog(_ s: String) {
+		AppLog.pipeline(s, s.hasPrefix("renamed ") ? .debug : s.hasPrefix("error") ? .error : .info)
 		let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
 		let k = s.hasPrefix("renamed ") ? "file" : s.range(of: "finished|done|success", options: [.regularExpression, .caseInsensitive]) != nil && !s.contains("errors") ? "ok" : ""
 		logLines.append(LogLine(t: f.string(from: Date()), m: s, k: k)); if logLines.count > 500 { logLines.removeFirst(100) }
@@ -226,11 +230,12 @@ final class AppState: ObservableObject {
 				let lg: Log = { [weak self] l in Task { @MainActor in self?.appendLog(l) } }
 				try await Task.detached { try Pipeline.move(album: album, library: lib, deleteSource: false, log: lg) }.value
 				appendLog("moved to " + lib.path)
+				AppLog.app("moved to the library: \(album.name) (\(album.tracks.count) files)")
 				if del { leftover = Leftover(folder: album.url, items: leftoverItems(album.url)) }
 				sheet = del ? .leftover : nil
 				albums.removeAll { $0.id == album.id }; selection = nil
 				notify("Moved to the library", kind: .success)
-			} catch { dialogError = error.localizedDescription }
+			} catch { dialogError = error.localizedDescription; AppLog.app("move failed: \(album.name): \(error.localizedDescription)", .error) }
 		}
 	}
 
@@ -284,6 +289,7 @@ final class AppState: ObservableObject {
 	func assign(_ album: Album, release: [String: Any], id: Int, items: [Assign.Item], importTitles: Bool) {
 		guard job == nil else { return }
 		job = "Applying \(album.title)"
+		AppLog.app("assigned Discogs release \(id) to \(album.name) (\(items.count) files)")
 		nonisolated(unsafe) let r = release
 		Task {
 			defer { job = nil }
@@ -306,6 +312,7 @@ final class AppState: ObservableObject {
 	func assignMusicBrainz(_ album: Album, detail d: MusicBrainz.Detail, items: [(Assign.Item, [String])], importTitles: Bool) {
 		guard job == nil else { return }
 		job = "Applying \(album.title)"
+		AppLog.app("assigned MusicBrainz release \(d.id) to \(album.name) (\(items.count) files)")
 		var discs: [Int: Int] = [:]
 		for (i, _) in items { discs[i.disc, default: 0] += 1 }
 		let byURL = Dictionary(uniqueKeysWithValues: items.map { ($0.0.url.path, $0) })
@@ -354,6 +361,8 @@ final class AppState: ObservableObject {
 		let cleared = f.filter { k, v in k != "ALBUM_EDITION" && v.trimmingCharacters(in: .whitespaces).isEmpty && !t0.first(k).isEmpty }.map(\.key)
 		let touchedVersion = ["ALBUM_FORMAT_OVERRIDE", "CATALOGNUMBER_OVERRIDE", "ALBUM_EDITION"].contains { f[$0] != nil }
 		let dr = album.albumDR
+		AppLog.app("tags saved: \(album.name): \(f.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.isEmpty ? "(removed)" : "'\($0.value)'")" }.joined(separator: ", ").isEmpty ? "no album fields" : f.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.isEmpty ? "(removed)" : "'\($0.value)'")" }.joined(separator: ", ")); \(rows.count) track(s) edited")
+		for r in rows.values { AppLog.app("track edited: \(r.file): title='\(r.title)' disc=\(r.disc) track=\(r.track) artist='\(r.artist)'", .debug) }
 		writeTags(album, steps: touchedVersion ? [.tags, .filenames] : [.filenames], done: done) { url, t in
 			for (k, raw) in f {
 				let v = raw.trimmingCharacters(in: .whitespaces)
