@@ -31,6 +31,7 @@ enum Pipeline {
 			var flac = try AudioFile(url: f)
 			var t = flac.tags
 			change(f, &t)
+			if t == flac.tags { continue }   // unchanged files are not rewritten (as drcalc, rsgain)
 			flac.tags = t
 			try flac.save()
 		}
@@ -38,19 +39,27 @@ enum Pipeline {
 
 	// MARK: 1. dynamic range (TT DR algorithm: 3 s blocks, 20 % loudest, 2nd peak)
 
+	/// As drcalc --write-tags --album overall: values zero-padded ("08"), 0 never written. A track that cannot be
+	/// measured (shorter than 12 s) is skipped; the others and ALBUM_DR are still written, then the step fails.
 	static func dynamicRange(files: [URL], log: Log) throws {
-		var values: [Int] = []
+		var values: [URL: Int] = [:], failed: [String] = []
 		for f in files {
 			try Task.checkCancellation()
-			let dr = try measureDR(f)
-			log("DR \(dr)  \(f.lastPathComponent)")
-			values.append(dr)
-			try update([f]) { _, t in t["DYNAMIC_RANGE"] = ["\(dr)"] }
+			do { let dr = try measureDR(f); values[f] = dr; log("DR \(dr)  \(f.lastPathComponent)") }
+			catch { failed.append(error.localizedDescription); log("error: \(error.localizedDescription)") }
 		}
-		let album = albumDR(values)
-		try update(files) { _, t in t["ALBUM_DR"] = ["\(album)"] }
+		let album = albumDR(Array(values.values))
+		try update(Array(values.keys)) { u, t in
+			if let v = values[u], v > 0 { t["DYNAMIC_RANGE"] = [drTag(v)] }
+			if album > 0 { t["ALBUM_DR"] = [drTag(album)] }
+		}
+		let others = files.filter { values[$0] == nil }
+		if album > 0, !others.isEmpty { try update(others) { _, t in t["ALBUM_DR"] = [drTag(album)] } }
 		log("Album DR \(album)")
+		if !failed.isEmpty { throw StepError("DR not measured: " + failed.joined(separator: "; ")) }
 	}
+
+	static func drTag(_ v: Int) -> String { String(format: "%02d", v) }
 
 	/// As calculate_dr.py / drcalc: the mean of the rounded track values, tracks with DR 0 left out; ties to even.
 	static func albumDR(_ tracks: [Int]) -> Int {
