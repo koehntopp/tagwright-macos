@@ -304,6 +304,7 @@ struct DiscogsSheet: View {
 	@State private var raw: [String: Any]?
 	@State private var st = AssignState()
 	@State private var busy = false
+	@State private var searchTask: Task<Void, Never>?   // a new search replaces the running one
 	@State private var loadingRelease = false
 	@State private var message: String?
 	@State private var sortKey = ""
@@ -354,7 +355,7 @@ struct DiscogsSheet: View {
 		VStack(alignment: .leading, spacing: 8) {
 			HStack {
 				TextField("Search Discogs (a release number loads it)", text: $query).textFieldStyle(.roundedBorder).onSubmit { search() }
-				Button { search() } label: { Text(busy ? "Searching…" : "Search Discogs").padding(.horizontal, 6) }.buttonStyle(.borderedProminent).tint(Color.ink).disabled(busy)
+				Button { search() } label: { HStack(spacing: 6) { if busy { ProgressView().controlSize(.small).tint(.white) }; Text(busy ? "Search again" : "Search Discogs") }.padding(.horizontal, 6) }.buttonStyle(.borderedProminent).tint(Color.ink).help(busy ? "Stops the running search and starts a new one" : "")
 			}
 			HStack(spacing: 18) { chip("Artist", album.artist); chip("Album", album.title); chip("Year", album.year); if !album.catalog.isEmpty { chip("Catalog #", album.catalog) } }
 				.font(.system(size: 12)).foregroundStyle(Color.muted)
@@ -398,16 +399,19 @@ struct DiscogsSheet: View {
 	}
 
 	func search() {
+		searchTask?.cancel()
 		busy = true; message = nil
-		Task {
-			defer { busy = false }
+		searchTask = Task {
+			defer { if !Task.isCancelled { busy = false } }
 			do {
 				var found = try await Discogs.search(query: query)
+				if Task.isCancelled { return }
 				if let mb { for i in found.indices where mb.discogsIDs.contains(found[i].id) { found[i].match = "MusicBrainz" }; found.sort { $0.match > $1.match } }
 				hits = found
 				if hits.isEmpty { message = "No releases found" }
-			} catch { message = error.localizedDescription }
+			} catch { if !Task.isCancelled { message = error.localizedDescription }; return }
 			for h in hits where h.tracks == nil {
+				if Task.isCancelled { return }
 				let n = await Discogs.trackCount(h.id)
 				if let i = hits.firstIndex(where: { $0.id == h.id }) { hits[i].tracks = n ?? 0 }
 			}
@@ -451,6 +455,7 @@ struct MusicBrainzSheet: View {
 	@State private var detail: MusicBrainz.Detail?
 	@State private var st = AssignState()
 	@State private var busy = false
+	@State private var searchTask: Task<Void, Never>?   // a new search replaces the running one
 	@State private var loading = false
 	@State private var message: String?
 	@State private var sortKey = ""
@@ -491,7 +496,7 @@ struct MusicBrainzSheet: View {
 		VStack(alignment: .leading, spacing: 8) {
 			HStack {
 				TextField("Search MusicBrainz (a release ID loads it)", text: $query).textFieldStyle(.roundedBorder).onSubmit { search() }
-				Button { search() } label: { Text(busy ? "Searching…" : "Search MusicBrainz").padding(.horizontal, 6) }.buttonStyle(.borderedProminent).tint(Color.ink).disabled(busy)
+				Button { search() } label: { HStack(spacing: 6) { if busy { ProgressView().controlSize(.small).tint(.white) }; Text(busy ? "Search again" : "Search MusicBrainz") }.padding(.horizontal, 6) }.buttonStyle(.borderedProminent).tint(Color.ink).help(busy ? "Stops the running search and starts a new one" : "")
 			}
 			HStack(spacing: 18) { chip("Artist", album.artist); chip("Album", album.title); chip("Year", album.year); if !album.catalog.isEmpty { chip("Catalog #", album.catalog) } }
 				.font(.system(size: 12)).foregroundStyle(Color.muted)
@@ -535,12 +540,15 @@ struct MusicBrainzSheet: View {
 	func search() {
 		busy = true; message = nil
 		let barcode = album.tracks.first?.tags.first("BARCODE", "UPC") ?? ""
-		Task {
-			defer { busy = false }
+		searchTask?.cancel()
+		searchTask = Task {
+			defer { if !Task.isCancelled { busy = false } }
 			do {
-				hits = try await MusicBrainz.search(query: query, discogsID: album.discogsID, barcode: barcode, catno: album.catalog)
+				let found = try await MusicBrainz.search(query: query, discogsID: album.discogsID, barcode: barcode, catno: album.catalog)
+				if Task.isCancelled { return }
+				hits = found
 				if hits.isEmpty { message = "No releases found" }
-			} catch { message = error.localizedDescription }
+			} catch { if !Task.isCancelled { message = error.localizedDescription } }
 		}
 	}
 
@@ -579,6 +587,7 @@ struct LyricsSheet: View {
 	@State private var text = ""
 	@State private var message: String?
 	@State private var busy = false
+	@State private var searchTask: Task<Void, Never>?   // a new search replaces the running one
 	@State private var loaded = false
 
 	var body: some View {
@@ -587,7 +596,7 @@ struct LyricsSheet: View {
 				HStack {
 					TextField("Title", text: $title).textFieldStyle(.roundedBorder)
 					TextField("Artist", text: $artist).textFieldStyle(.roundedBorder)
-					Button(busy ? "Searching…" : "Search lrclib.net") { search() }.buttonStyle(.borderedProminent).tint(Color.ink).disabled(busy)
+					Button { search() } label: { HStack(spacing: 6) { if busy { ProgressView().controlSize(.small).tint(.white) }; Text(busy ? "Search again" : "Search lrclib.net") } }.buttonStyle(.borderedProminent).tint(Color.ink)
 				}
 				HStack {
 					Text("Lyrics").font(.system(size: 13, weight: .medium))
@@ -617,13 +626,15 @@ struct LyricsSheet: View {
 	var kindColor: Color { switch probe.lyricsKind { case .lrc: .ok; case .txt: .warn; case .instr: .info; case .none: .bad } }
 
 	func search() {
+		searchTask?.cancel()
 		busy = true; message = nil
-		Task {
-			defer { busy = false }
+		searchTask = Task {
+			defer { if !Task.isCancelled { busy = false } }
 			var tags = track.tags
 			tags["TITLE"] = [title]; tags["ARTIST"] = [artist]; tags["ALBUMARTIST"] = [track.tags.first("ALBUMARTIST", "ARTIST")]
 			tags["LYRICS"] = nil
 			let r = await Lrc.decide(tags: tags, length: track.info.duration, log: { _ in }, lookup: Lrc.lrclib)
+			if Task.isCancelled { return }
 			switch r.action {
 			case "failed": message = "lrclib.net did not answer; try again"
 			case "new", "fix": text = r.lyrics
@@ -759,7 +770,7 @@ struct TagEditorSheet: View {
 			HStack(spacing: 8) {
 				Text(id.isEmpty ? "missing" : id).font(.system(size: 12, weight: .medium, design: id.isEmpty ? .default : .monospaced)).foregroundStyle(id.isEmpty ? Color(hex: 0xbe123c) : Color.ink)
 					.padding(.horizontal, 10).padding(.vertical, 4).background(id.isEmpty ? Color(hex: 0xffe4e6) : Color.board, in: Capsule())
-				Button(action: pen) { Image(systemName: "pencil") }.buttonStyle(IconButton(hover: Color.board)).help("Search")
+				Button(action: pen) { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, hover: Color.board)).help("Search")
 			}
 		}.frame(maxWidth: .infinity, alignment: .topLeading)
 	}
@@ -781,7 +792,7 @@ struct TagEditorSheet: View {
 						Pill(text: t.formatLabel, bg: .white).frame(width: 70)
 						Pill(text: t.channelsLabel, fg: Color.ink.opacity(0.7), bg: Color(hex: 0xe5e7eb)).frame(width: 62)
 						Group { switch t.lyricsKind { case .lrc: Pill(text: "LRC", fg: .white, bg: .ok); case .txt: Pill(text: "TXT", fg: .black, bg: .warn); case .instr: Pill(text: "INS", fg: .white, bg: .info); case .none: Pill(text: "---", fg: .white, bg: .bad) } }.frame(width: 44)
-						Button { lyricsFor = t } label: { Image(systemName: "pencil") }.buttonStyle(IconButton(color: Color.muted, hover: Color.board)).help("Edit lyrics")
+						Button { lyricsFor = t } label: { Image(systemName: "pencil").font(.system(size: 15, weight: .bold)) }.buttonStyle(IconButton(size: 28, color: Color.muted, hover: Color.board)).help("Edit lyrics")
 					}
 				}
 			}.onMove { from, to in order.move(fromOffsets: from, toOffset: to); renumber() }
