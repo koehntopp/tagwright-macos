@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Accelerate
 
 struct StepError: Error, LocalizedError {
 	var message: String
@@ -102,7 +103,49 @@ enum Pipeline {
 		return drs.reduce(0, +) / Double(ch)
 	}
 
-	// MARK: 2. ReplayGain 2.0 (EBU R128, reference -18 LUFS)
+	// MARK: 2. ReplayGain (EBU R128) with the web app's rsgain preset (replaygain.py: TargetLoudness -14, ClipMode a,
+	// MaxPeakLevel -1, TruePeak true)
+
+	static let targetLoudness = -14.0, maxPeakLevel = -1.0
+
+	/// libebur128's true-peak interpolator: 49-tap Hann-windowed sinc, 4x below 96 kHz, 2x below 192 kHz.
+	struct TruePeak {
+		let factor: Int
+		let phases: [[Float]]   // per phase, reversed for vDSP_conv
+		var history: [[Float]]
+		init(rate: Double, channels: Int) {
+			factor = rate < 96000 ? 4 : rate < 192000 ? 2 : 1
+			let taps = 49, f = Double(factor)
+			var c = [Double](repeating: 0, count: taps)
+			for j in 0..<taps {
+				let m = Double(j) - Double(taps - 1) / 2
+				let sinc = m == 0 ? 1 : sin(Double.pi * m / f) / (Double.pi * m / f)
+				c[j] = sinc * 0.5 * (1 - cos(2 * Double.pi * Double(j) / Double(taps - 1)))
+			}
+			let fac = factor
+			phases = (0..<fac).map { p in Array(stride(from: p, to: taps, by: fac).map { Float(c[$0]) }.reversed()) }
+			history = Array(repeating: Array(repeating: 0, count: (taps + fac - 1) / fac), count: channels)
+		}
+		/// The largest magnitude of the oversampled signal of `x` (one channel, continuing from the last call).
+		mutating func peak(_ x: UnsafePointer<Float>, _ n: Int, channel c: Int) -> Float {
+			guard factor > 1 else { var m: Float = 0; vDSP_maxmgv(x, 1, &m, vDSP_Length(n)); return m }
+			let h = history[c].count
+			var buf = history[c] + Array(UnsafeBufferPointer(start: x, count: n))
+			var best: Float = 0
+			var out = [Float](repeating: 0, count: n)
+			for ph in phases {
+				let len = ph.count
+				buf.withUnsafeBufferPointer { b in
+					ph.withUnsafeBufferPointer { f in
+						vDSP_conv(b.baseAddress! + (h - len + 1), 1, f.baseAddress!, 1, &out, 1, vDSP_Length(n), vDSP_Length(len))
+					}
+				}
+				var m: Float = 0; vDSP_maxmgv(out, 1, &m, vDSP_Length(n)); best = max(best, m)
+			}
+			history[c] = Array(buf.suffix(h))
+			return best
+		}
+	}
 
 	private struct Biquad {
 		var b0, b1, b2, a1, a2: Double
@@ -136,7 +179,7 @@ enum Pipeline {
 		}
 	}
 
-	/// Mean-square energy per 100 ms sub-block (channel-weighted) and the sample peak.
+	/// Mean-square energy per 100 ms sub-block (channel-weighted) and the true peak.
 	private static func energies(_ url: URL) throws -> (blocks: [Double], peak: Float) {
 		let af = try AVAudioFile(forReading: url)
 		let fmt = af.processingFormat, ch = Int(fmt.channelCount), fs = fmt.sampleRate
@@ -145,12 +188,13 @@ enum Pipeline {
 		let weights = channelWeights(ch)
 		let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 65536)!
 		var acc = [Double](repeating: 0, count: ch), n = 0, out: [Double] = [], peak: Float = 0
+		var tp = TruePeak(rate: fs, channels: ch)
 		while try readChunk(af, buf) {
 			let len = Int(buf.frameLength)
+			for c in 0..<ch { peak = max(peak, tp.peak(buf.floatChannelData![c], len, channel: c)) }
 			for i in 0..<len {
 				for c in 0..<ch {
 					let x = buf.floatChannelData![c][i]
-					peak = max(peak, abs(x))
 					var y = Double(x)
 					y = filters[c][0].run(y); y = filters[c][1].run(y)
 					acc[c] += y * y
@@ -185,7 +229,12 @@ enum Pipeline {
 
 	struct GainResult { var tracks: [(gain: Double, peak: Double)]; var albumGain: Double; var albumPeak: Double }
 
-	/// ReplayGain 2.0 (reference -18 LUFS) for the tracks of one album; writes nothing.
+	/// rsgain clip mode "a": the gain is lowered so the true peak stays at or below MaxPeakLevel.
+	static func clipped(_ gain: Double, peak: Double) -> Double {
+		peak > 0 ? min(gain, maxPeakLevel - 20 * log10(peak)) : gain
+	}
+
+	/// Track and album gain for the web app's preset (-14 LUFS, clipping protection) for one album; writes nothing.
 	static func replayGainValues(files: [URL]) throws -> GainResult {
 		var per: [(blocks: [Double], peak: Double)] = []
 		for f in files {
@@ -197,9 +246,10 @@ enum Pipeline {
 		var out: [(Double, Double)] = []
 		for (i, p) in per.enumerated() {
 			guard let l = gated(p.blocks) else { throw StepError("\(files[i].lastPathComponent) is too quiet to measure") }
-			out.append((-18 - l, p.peak))
+			out.append((clipped(targetLoudness - l, peak: p.peak), p.peak))
 		}
-		return GainResult(tracks: out, albumGain: -18 - album, albumPeak: per.map(\.peak).max() ?? 0)
+		let albumPeak = per.map(\.peak).max() ?? 0
+		return GainResult(tracks: out, albumGain: clipped(targetLoudness - album, peak: albumPeak), albumPeak: albumPeak)
 	}
 
 	/// True when every file carries REPLAYGAIN_ALBUM_GAIN; track gain alone is not enough (ADR 0028).
@@ -217,7 +267,7 @@ enum Pipeline {
 				tags["REPLAYGAIN_TRACK_PEAK"] = [String(format: "%.6f", t.peak)]
 				tags["REPLAYGAIN_ALBUM_GAIN"] = [String(format: "%.2f dB", r.albumGain)]
 				tags["REPLAYGAIN_ALBUM_PEAK"] = [String(format: "%.6f", r.albumPeak)]
-				tags["REPLAYGAIN_REFERENCE_LOUDNESS"] = ["-18.00 LUFS"]
+				tags["REPLAYGAIN_REFERENCE_LOUDNESS"] = nil   // rsgain writes none
 			}
 		}
 		log(String(format: "Album gain %+.2f dB", r.albumGain))

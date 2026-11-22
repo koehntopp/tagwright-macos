@@ -18,7 +18,7 @@ Build: `./build-app.sh` -> `build/Tagwright.app`. Tests: `DEVELOPER_DIR=/Applica
 | 0015 / 0021 lyrics editor, LRC repair | `Lrc.swift`, `Sheets.swift` |
 | 0037 / 0067 / 0077 / 0082 library template, watcher, index, CSV | `Library*.swift`, `Lib*.swift` |
 
-Steps run in process: dynamic range (TT DR), ReplayGain 2.0 (EBU R128, -18 LUFS), lyrics (LRCLIB), filenames. Fingerprints (Chromaprint algorithm 2) are computed natively: no external tools.
+Steps run in process: dynamic range (TT DR), ReplayGain (EBU R128, the web app's rsgain preset: -14 LUFS, true peak, clipping protection at -1 dBTP), lyrics (LRCLIB), filenames. Fingerprints (Chromaprint algorithm 2) are computed natively: no external tools.
 
 UI: dialogs, cards, inspector and list view follow `../tagwright/ui/components` (Tailwind/shadcn look rebuilt in `Theme.swift`); lucide icons and the web's static images are generated into `Assets.swift` by `node scripts/gen-assets.mjs Sources/Tagwright/Assets.swift`.
 
