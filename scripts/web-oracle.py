@@ -17,6 +17,7 @@ WEB = Path(__file__).resolve().parents[2] / 'tagwright'
 sys.path.insert(0, str(WEB))
 
 from pipeline import credits, fixtags, lyrics, naming  # noqa: E402
+from pipeline.positions import Positions  # noqa: E402
 from pipeline.tagio import tag  # noqa: E402
 from library import template  # noqa: E402
 
@@ -49,6 +50,17 @@ def track_tags(c):
 	"""ARTIST and the credit tags of every track of a release file, in flat_tracks order (ADR 0100)."""
 	r = json.loads(Path(c).read_text())
 	return [credits.track_tags(r, i) for i in range(len(credits.flat_tracks(r)))]
+
+
+def positions(c):
+	"""Disc and track of a run of positions; an item starting with '#' is a heading (ADR 0101)."""
+	p, out = Positions(), []
+	for item in c:
+		if item.startswith('#'):
+			p.heading(item[1:])
+		else:
+			out.append(list(p.place(item) or []))
+	return out
 
 
 def album_issues(c):
@@ -104,6 +116,7 @@ FNS = {
 	'version_string': lambda c: fixtags.version_string(*c),
 	'release_tags': release_tags,
 	'track_tags': track_tags,
+	'positions': positions,
 	'album_issues': album_issues,
 	'lyric_kind': lyric_kind,
 	'template_target': template_target,

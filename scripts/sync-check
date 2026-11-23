@@ -55,7 +55,7 @@ MAP = [
 	('docs/adr/', 'GAPS.md; whatever the ADR covers'),
 	('CHANGELOG.md', 'read the new entries'),
 ]
-IGNORE = ('tests/', '.github/', 'Dockerfile', 'compose', 'renovate', 'uv.lock', 'pyproject.toml', 'ui/package', 'ui/node_modules', 'scripts/', '.dockerignore', '.gitignore', 'deploy', 'LICENSE', 'NOTICE', 'README.md', 'AGENTS.md', 'CLAUDE.md', 'docs/screenshots/')
+IGNORE = ('tests/', '.github/', 'Dockerfile', 'compose', 'renovate', 'uv.lock', 'pyproject.toml', 'ui/package', 'ui/node_modules', 'scripts/', '.dockerignore', '.gitignore', 'deploy', 'LICENSE', 'NOTICE', 'README.md', 'AGENTS.md', 'CLAUDE.md', 'docs/screenshots/', 'website/')
 
 
 def git(*a: str) -> str:

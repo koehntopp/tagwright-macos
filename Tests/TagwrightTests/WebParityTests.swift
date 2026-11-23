@@ -154,4 +154,35 @@ final class WebParityTests: XCTestCase {
 			for (i, (e, p)) in flat.enumerated() { XCTAssertEqual(Credits.trackTags(r, entry: e, parent: p), w[i], "track \(i) of \(id)") }
 		}
 	}
+
+	/// ADR 0101: disc and track from positions with media labels, headings, vinyl sides.
+	func testPositions() throws {
+		let cases: [[String]] = [
+			["1-1", "2.3", "CD2-4", "DVD1-1", "SACD1-4", "BD2-1", "HDCD1-3", "CD1"],
+			["SACD-1", "SACD-2", "CD-1", "DVD-1", "CD-2"],
+			["CD1-1", "CD2-1", "DVD-1", "BD3"],
+			["#Disc 1 (SA-CD): Piano Man", "SACD-1", "#Disc 2 (CD): Rare", "CD-1", "#Disc 3 (DVD)", "DVD-11"],
+			["#Disc 1", "CD-1", "#Disc 2", "CD-1"],
+			["#SACD 1", "1", "2", "#Blu-ray 2", "1", "#Bonus", "3"],
+			["A1", "B2", "1", "", "A1.1", "AA1"],
+		]
+		let w = try web("positions", cases)
+		for (c, want) in zip(cases, w) {
+			var p = Positions(), got: [[Int]] = []
+			for item in c {
+				if item.hasPrefix("#") { p.heading(String(item.dropFirst())) } else { got.append(p.place(item).map { [$0.0, $0.1] } ?? []) }
+			}
+			XCTAssertEqual(got, want as? [[Int]], "\(c)")
+		}
+	}
+
+	/// ADR 0101: the SACD + CD + DVD set of Billy Joel, Piano Man (2024) gets three discs.
+	func testTracklistMediaLabels() throws {
+		let r: [String: Any] = ["tracklist": [
+			["type_": "heading", "title": "Disc 1 (SA-CD): Piano Man"], ["type_": "track", "position": "SACD-1", "title": "A"],
+			["type_": "track", "position": "SACD-2", "title": "B"], ["type_": "heading", "title": "Disc 2 (CD): Rare"],
+			["type_": "track", "position": "CD-1", "title": "C"], ["type_": "track", "position": "DVD-1", "title": "D"],
+		]]
+		XCTAssertEqual(Discogs.tracklist(r).map { [$0.disc, $0.number] }, [[1, 1], [1, 2], [2, 1], [2, 1]])
+	}
 }

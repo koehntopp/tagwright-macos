@@ -128,23 +128,15 @@ enum Discogs {
 
 	static func tracklist(_ r: [String: Any]) -> [DTrack] {
 		var out: [DTrack] = []
-		var heading = "", headDisc: Int?
+		var heading = "", positions = Positions()
 		let albumArtist = artistNames(r["artists"] as? [[String: Any]] ?? [])
 		let order = Credits.order(r)
-		func parse(_ pos: String) -> (Int, Int)? {
-			let u = pos.uppercased()
-			if let m = u.range(of: #"^(?:CD|DVD)?(\d+)[-.](\d+)"#, options: .regularExpression) {
-				let nums = u[m].components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }.compactMap(Int.init)
-				if nums.count >= 2 { return (nums[0], nums[1]) }
-			}
-			return nil
-		}
 		for t in r["tracklist"] as? [[String: Any]] ?? [] {
 			let type = t["type_"] as? String ?? "track"
 			let title = (t["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
 			if type == "heading" {
 				heading = title
-				headDisc = title.range(of: #"^(?:disc|cd|dvd)\s*(\d+)"#, options: [.regularExpression, .caseInsensitive]).flatMap { Int(title[$0].filter(\.isNumber)) }
+				positions.heading(title)
 				continue
 			}
 			var pos = t["position"] as? String ?? ""
@@ -154,16 +146,15 @@ enum Discogs {
 				mainTitle = title
 			} else if type != "track" { continue }
 			var disc = 1, no = out.count + 1
-			if let (d, n) = parse(pos) { disc = d; no = n }
-			else if let hd = headDisc, let n = Int(pos.filter(\.isNumber)) { disc = hd; no = n }
-			else if let last = out.last, headDisc == nil { disc = last.disc; no = (out.filter { $0.disc == disc }.count) + 1 }
+			if let (d, n) = positions.place(pos) { disc = d; no = n }
+			else if let last = out.last, positions.head == 0 { disc = last.disc; no = (out.filter { $0.disc == disc }.count) + 1 }
 			else { no = out.count + 1 }
 			let ta = artistNames(t["artists"] as? [[String: Any]] ?? [])
 			let secs: Int = {
 				let p = (t["duration"] as? String ?? "").split(separator: ":").compactMap { Int($0) }
 				return p.count == 2 ? p[0] * 60 + p[1] : p.count == 3 ? p[0] * 3600 + p[1] * 60 + p[2] : 0
 			}()
-			let isDisc = heading.range(of: #"^(?:disc|cd|dvd)\s*\d+"#, options: [.regularExpression, .caseInsensitive]) != nil
+			let isDisc = heading.range(of: "^" + Positions.discHeading, options: [.regularExpression, .caseInsensitive]) != nil
 			var tr = DTrack(id: out.count, disc: disc, number: no, title: mainTitle, artist: ta.isEmpty ? albumArtist : ta, seconds: secs, subtitle: isDisc ? "" : heading)
 			tr.position = pos
 			tr.credits = Credits.trackTags(r, entry: t, order: order)
