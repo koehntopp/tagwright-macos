@@ -25,7 +25,7 @@ specification for both; this app has no decisions of its own.
 
 ## 2. Working here
 
-- Build: `./build-app.sh`. Tests: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
+- Build: `./build-app.sh`. Release (Developer ID, notarized, stapled zip in `build/`): `./release.sh <web version>`. Tests: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
 - Test on copies, never on the real staging folder or library: start the app with
   `build/Tagwright.app/Contents/MacOS/Tagwright -staging <copy> -library <empty dir>`.
 - `GAPS.md` lists what differs from the web app and why; keep it current in the same commit.
