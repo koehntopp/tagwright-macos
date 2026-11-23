@@ -353,6 +353,7 @@ struct TagEditorSheet: View {
 				.frame(height: min(max(contentH, 40), max(300, maxH * 0.62)))
 		}
 		.onAppear { if !loaded { load(); loaded = true } }
+		.onChange(of: album.tracks.map(\.url)) { load() }   // the watcher moved or renamed the files (ADR 0037)
 	}
 
 	var tabContent: some View {

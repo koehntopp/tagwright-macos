@@ -10,6 +10,8 @@ enum Artwork {
 	/// Pseudo-type of the box-set cover: a front picture described `Box set`, never written as a picture type.
 	static let box: UInt32 = 100
 	static let boxDesc = "Box set"
+	/// The copy of folder.jpg inside Artwork/, so the folder holds the whole set (ADR 0105).
+	static let frontCopy = "Artwork/00 front.jpg"
 
 	static func isBox(_ p: Picture) -> Bool {
 		p.type == 3 && p.desc.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(boxDesc) == .orderedSame
@@ -45,7 +47,7 @@ enum Artwork {
 	/// `Artwork/` files.
 	static func names(_ g: [UInt32: [Picture]], front given: Picture? = nil) -> [(String, Picture)] {
 		var out: [(String, Picture)] = []
-		if let f = given ?? front(g) ?? g[box]?.first { out.append(("folder.jpg", f)) }
+		if let f = given ?? front(g) ?? g[box]?.first { out += [("folder.jpg", f), (frontCopy, f)] }
 		var index = 0
 		for (type, stem) in [(UInt32(4), "back"), (5, "booklet"), (6, "disc")] {
 			for (n, p) in (g[type] ?? []).enumerated() {
@@ -73,7 +75,7 @@ enum Artwork {
 			if firstFront == nil { firstFront = front(g) }
 		}
 		if !dirs.contains(where: { $0.standardizedFileURL.path == top }), let t = boxPic ?? firstFront {
-			out.insert((albumDir.appendingPathComponent("folder.jpg"), t), at: 0)
+			out.insert(contentsOf: [(albumDir.appendingPathComponent("folder.jpg"), t), (albumDir.appendingPathComponent(frontCopy), t)], at: 0)
 		}
 		return out
 	}

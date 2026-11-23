@@ -69,7 +69,12 @@ final class AppState: ObservableObject {
 	init() {
 		AppLog.app("Tagwright started (log level \(AppLog.level.name))")
 		library.setRoot(libraryPath)
-		library.onMoved = { [weak self] in if self?.source == .library { self?.rescan() } }
+		library.onMoved = { [weak self] moved in
+			guard let self else { return }
+			// the selection follows the open album to its new folder; an open Tag Editor reads its files again (ADR 0037)
+			if let sel = selection, let to = moved.first(where: { $0.from == sel })?.to { selection = to }
+			if source == .library { rescan() }
+		}
 	}
 
 	var root: URL? {
@@ -185,7 +190,7 @@ final class AppState: ObservableObject {
 		var failed = false, stopped = false
 		task = Task {
 			defer {
-				job = nil; runningStep = nil; refresh(selected ?? album); task = nil
+				job = nil; runningStep = nil; rebuildLibraryArt(album); refresh(selected ?? album); task = nil
 				jobState = failed ? .failed : stopped ? .stopped : .idle
 				AppLog.app("run \(failed ? "finished with errors" : stopped ? "stopped" : "finished"): \(album.name)", failed ? .warning : .info)
 				notify(failed ? "Run finished with errors" : stopped ? "Run stopped" : "Run finished", kind: failed ? .error : stopped ? .warning : .success)
@@ -289,7 +294,7 @@ final class AppState: ObservableObject {
 					if t.first("CATALOGNUMBER_OVERRIDE").isEmpty { t["CATALOGNUMBER"] = [cat.isEmpty ? "none" : cat] }
 				} }.value
 				refresh(a)
-				if let b = albums.first(where: { $0.id == album.id }) { try await Assign.fixTags(album: b, log: { _ in }); refresh(b) }
+				if let b = albums.first(where: { $0.id == album.id }) { try await Assign.fixTags(album: b, log: { _ in }); refresh(b); rebuildLibraryArt(b) }
 			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
@@ -310,7 +315,7 @@ final class AppState: ObservableObject {
 					do { try await Assign.fixTags(album: a, log: { [weak self] l in Task { @MainActor in self?.appendLog(l) } }) }
 					catch { appendLog("Discogs tags not refreshed: \(error.localizedDescription)") }
 					refresh(a)
-					if let b = albums.first(where: { $0.id == album.id }) { try Pipeline.rename(album: b, log: { [weak self] l in Task { @MainActor in self?.appendLog(l) } }); refresh(b) }
+					if let b = albums.first(where: { $0.id == album.id }) { try Pipeline.rename(album: b, log: { [weak self] l in Task { @MainActor in self?.appendLog(l) } }); refresh(b); rebuildLibraryArt(b) }
 				}
 				notify("Tracks assigned", kind: .success)
 			} catch { notify(error.localizedDescription, kind: .error) }
@@ -464,6 +469,14 @@ final class AppState: ObservableObject {
 
 	/// The Remove cover dialog: the front of the disc the inspector shows, or of every file.
 	func removeCover(_ album: Album) { removeArtwork(album, type: .front, data: nil, disc: coverDisc(album)) }
+
+	/// After Tagwright changed a library album's embedded art (a run may scale covers, an assignment may add one):
+	/// its cover files follow (ADR 0098, 0105). Staging albums get theirs when they move.
+	func rebuildLibraryArt(_ a: Album) {
+		guard inLibrary(a) else { return }
+		let dir = a.url
+		Task.detached { Artwork.rebuild(dir) }
+	}
 
 	func inLibrary(_ a: Album) -> Bool { !libraryPath.isEmpty && a.url.standardizedFileURL.path.hasPrefix(URL(fileURLWithPath: libraryPath).standardizedFileURL.path + "/") }
 

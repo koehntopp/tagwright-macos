@@ -12,7 +12,32 @@ final class LibExecutor {
 		var actions: [String] = []
 	}
 	static let litter = [".DS_Store", "Thumbs.db", "desktop.ini"]
-	static func isLitter(_ n: String) -> Bool { litter.contains(n) || n.hasPrefix("._") }
+	/// Synology keeps extended attributes and thumbnails in a folder's @eaDir, invisible over SMB (ADR 0103).
+	static let litterDirs = ["@eaDir"]
+	static func isLitter(_ n: String) -> Bool { litter.contains(n) || litterDirs.contains(n) || n.hasPrefix("._") }
+
+	/// ADR 0103: remove every folder below root that holds nothing but litter and folders of that kind, deepest
+	/// first; any other file keeps it and the folders above it. Hidden folders and root are never touched. Returns
+	/// the removed folders relative to root.
+	static func removeEmptyDirs(root: URL, shouldStop: () -> Bool = { false }) -> [String] {
+		let fm = FileManager.default, base = root.standardizedFileURL.path
+		var dirs: [String] = []
+		if let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+			for case let u as URL in e where (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+				if isLitter(u.lastPathComponent) { e.skipDescendants(); continue }
+				dirs.append(u.standardizedFileURL.path)
+			}
+		}
+		var removed: [String] = []
+		for d in dirs.sorted(by: { $0.split(separator: "/").count > $1.split(separator: "/").count }) {
+			if shouldStop() { break }
+			guard d != base, d.hasPrefix(base + "/"), let names = try? fm.contentsOfDirectory(atPath: d), names.allSatisfy(isLitter) else { continue }
+			do { for n in names { try fm.removeItem(atPath: d + "/" + n) }; try fm.removeItem(atPath: d) } catch { continue }
+			removed.append(String(d.dropFirst(base.count + 1)))
+			AppLog.library("removed the empty folder \(removed.last!)")
+		}
+		return removed
+	}
 
 	let root: String
 	let shouldStop: () -> Bool
@@ -86,7 +111,7 @@ final class LibExecutor {
 		let abs = oldDir.isEmpty ? root : root + "/" + oldDir
 		let newDirs = Set(pairs.map { LibIndex.parent($0.1) })
 		guard newDirs.count == 1, isDir(abs), let names = try? fm.contentsOfDirectory(atPath: abs) else { return }
-		if names.contains(where: { LibScanner.isMusic($0) || isDir(abs + "/" + $0) }) { return }   // FLACs stay, or subfolders
+		if names.contains(where: { LibScanner.isMusic($0) || (isDir(abs + "/" + $0) && !Self.isLitter($0)) }) { return }   // FLACs stay, or subfolders
 		let target = root + "/" + newDirs.first!
 		for n in names where !Self.isLitter(n) {
 			let dst = target + "/" + n

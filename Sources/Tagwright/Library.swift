@@ -34,7 +34,9 @@ struct LibraryStatus {
 	@Published var settings = LibrarySettings.load() { didSet { if settings != oldValue { settings.save(); templateChanged = settings.template != oldValue.template; rescan() } } }
 	/// Set while Tagwright itself moves an album into the library: the watcher does not move files meanwhile (ADR 0008).
 	var exclusive = false
-	var onMoved: (() -> Void)?
+	/// After a move batch: the album folders files moved out of and into, absolute (from == to for renames inside one
+	/// folder), so the UI can follow an open album (ADR 0037).
+	var onMoved: (([(from: String, to: String)]) -> Void)?
 
 	private let index: LibIndex
 	private var root: URL?
@@ -128,6 +130,7 @@ struct LibraryStatus {
 		status.unplaced = Array(unplaced.prefix(200)); status.skipped = Array(plan.skipped.prefix(200))
 		status.planned = Array((ready + waiting).prefix(200)).map { ($0.src, $0.dst) }
 		if cfg.apply, !ready.isEmpty, !exclusive { await execute(root, ready) }
+		if cfg.apply, full, !exclusive { await afterFullPass(root, items) }
 		status.phase = waiting.isEmpty ? "idle" : "waiting"
 		status.message = waiting.isEmpty ? "" : "waiting for \(waiting.count) file(s) to settle"
 		index.save()
@@ -161,7 +164,50 @@ struct LibraryStatus {
 		if r.removedDirs > 0 { note("removed \(r.removedDirs) empty folder(s)") }
 		for p in r.errors.prefix(20) { note("\(p.path): \(p.reason)") }
 		status.nextWake = Date().addingTimeInterval(5)   // look again soon: the moves changed the folders
-		if !r.done.isEmpty { onMoved?() }
+		if !r.done.isEmpty {
+			func album(_ rel: String) -> String {
+				let d = LibIndex.parent(rel), a = Scanner.isDisc(LibIndex.name(d)) && d.contains("/") ? LibIndex.parent(d) : d
+				return a.isEmpty ? root.path : root.appendingPathComponent(a).path
+			}
+			let pairs = Set(r.done.map { "\(album($0.old))\n\(album($0.new))" }).sorted().map { p -> (from: String, to: String) in
+				let x = p.components(separatedBy: "\n"); return (x[0], x[1])
+			}
+			onMoved?(pairs)
+		}
+	}
+
+	/// The album folders (absolute, sorted) with a music folder that lacks folder.jpg or Artwork/00 front.jpg
+	/// (ADR 0104, 0105); `items` are the index's files, relative to root.
+	nonisolated static func lackingArt(root: URL, items: [LibPlanner.Item]) -> [URL] {
+		var albums: [String: Set<String>] = [:]
+		for i in items {
+			let d = LibIndex.parent(i.path), a = Scanner.isDisc(LibIndex.name(d)) && d.contains("/") ? LibIndex.parent(d) : d
+			albums[a, default: []].insert(d)
+		}
+		let fm = FileManager.default
+		func dir(_ rel: String) -> URL { rel.isEmpty ? root : root.appendingPathComponent(rel) }
+		return albums.keys.sorted().filter { a in
+			!albums[a]!.allSatisfy { f in
+				fm.fileExists(atPath: dir(f).appendingPathComponent("folder.jpg").path) && fm.fileExists(atPath: dir(f).appendingPathComponent(Artwork.frontCopy).path)
+			}
+		}.map(dir)
+	}
+
+	/// The full pass's housekeeping, with Apply on: write the missing cover files of every album with a music folder
+	/// lacking folder.jpg or Artwork/00 front.jpg (ADR 0104, 0105), then remove empty folders (ADR 0103).
+	private func afterFullPass(_ root: URL, _ items: [LibPlanner.Item]) async {
+		var wrote = 0
+		for dir in Self.lackingArt(root: root, items: items) {
+			if Task.isCancelled || exclusive { return }
+			let a = String(dir.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+			status.message = "writing cover files: \(a)"
+			let n = await Task.detached { Artwork.export(dir).count }.value
+			if n > 0 { wrote += 1; AppLog.library("wrote \(n) cover file(s) for \(a)") }
+		}
+		if wrote > 0 { note("wrote missing cover files for \(wrote) album(s)") }
+		let gone = await Task.detached { LibExecutor.removeEmptyDirs(root: root, shouldStop: { Task.isCancelled }) }.value
+		for d in gone { index.deleteTree(d) }
+		if !gone.isEmpty { note("removed \(gone.count) empty folder(s) left behind") }
 	}
 
 	// MARK: reads for the UI

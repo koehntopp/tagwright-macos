@@ -28,14 +28,14 @@ final class ArtworkTests: XCTestCase {
 	func testNames() {
 		let front = jpeg(10, 10), back1 = jpeg(11, 11), back2 = jpeg(12, 12), leaf = png(13), disc = jpeg(14, 14)
 		let g: [UInt32: [Tagwright.Picture]] = [0: [], 3: [.init(type: 3, data: front)], 4: [.init(type: 4, data: back1), .init(type: 4, data: back2)], 5: [.init(type: 5, mime: "image/png", data: leaf)], 6: [.init(type: 6, data: disc)]]
-		XCTAssertEqual(Artwork.names(g).map(\.0), ["folder.jpg", "Artwork/01 back.jpg", "Artwork/02 back-02.jpg", "Artwork/03 booklet-01.jpg", "Artwork/04 disc.jpg"])
+		XCTAssertEqual(Artwork.names(g).map(\.0), ["folder.jpg", "Artwork/00 front.jpg", "Artwork/01 back.jpg", "Artwork/02 back-02.jpg", "Artwork/03 booklet-01.jpg", "Artwork/04 disc.jpg"])
 	}
 
 	func testExportNeverOverwritesAndConvertsToJpeg() throws {
 		let album = try dir()
 		try flac(album.appendingPathComponent("01.flac"), disc: 1, pictures: [.init(type: 3, data: jpeg(10, 10)), .init(type: 5, mime: "image/png", data: png(13))])
 		try Data("mine".utf8).write(to: album.appendingPathComponent("folder.jpg"))
-		XCTAssertEqual(Artwork.export(album), ["Artwork/01 booklet-01.jpg"])
+		XCTAssertEqual(Artwork.export(album), ["Artwork/00 front.jpg", "Artwork/01 booklet-01.jpg"])
 		XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent("folder.jpg")), Data("mine".utf8), "never overwritten on a move")
 		XCTAssertTrue(try Data(contentsOf: album.appendingPathComponent("Artwork/01 booklet-01.jpg")).starts(with: [0xff, 0xd8]), "PNG written as JPEG")
 		XCTAssertEqual(Artwork.export(album), [], "a second pass writes nothing")
@@ -46,7 +46,7 @@ final class ArtworkTests: XCTestCase {
 		let boxPic = Tagwright.Picture(type: 3, desc: Artwork.boxDesc, data: box)
 		let a = try flac(album.appendingPathComponent("Disc 1/01.flac"), disc: 1, pictures: [.init(type: 3, data: d1), boxPic])
 		let b = try flac(album.appendingPathComponent("Disc 2/01.flac"), disc: 2, pictures: [boxPic, .init(type: 4, data: d2back)])
-		XCTAssertEqual(Artwork.export(album).sorted(), ["Disc 1/folder.jpg", "Disc 2/Artwork/01 back.jpg", "Disc 2/folder.jpg", "folder.jpg"])
+		XCTAssertEqual(Artwork.export(album).sorted(), ["Artwork/00 front.jpg", "Disc 1/Artwork/00 front.jpg", "Disc 1/folder.jpg", "Disc 2/Artwork/00 front.jpg", "Disc 2/Artwork/01 back.jpg", "Disc 2/folder.jpg", "folder.jpg"])
 		XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent("folder.jpg")), box, "the box folder shows the box cover")
 		XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent("Disc 1/folder.jpg")), d1, "a disc folder its own front")
 		XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent("Disc 2/folder.jpg")), box, "else the box cover")
@@ -60,7 +60,7 @@ final class ArtworkTests: XCTestCase {
 		try Artwork.write([a, b], type: 4, pictures: [], disc: 2)
 		Artwork.rebuild(album)
 		XCTAssertEqual(try Data(contentsOf: album.appendingPathComponent("Disc 2/folder.jpg")), d2, "rebuild overwrites")
-		XCTAssertFalse(FileManager.default.fileExists(atPath: album.appendingPathComponent("Disc 2/Artwork").path))
+		XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: album.appendingPathComponent("Disc 2/Artwork").path), ["00 front.jpg"], "the stale back cover is gone, the front copy stays (ADR 0105)")
 		XCTAssertEqual(Artwork.read([a, b], disc: 1)[3]?.map(\.data), [d1])
 		XCTAssertEqual(Artwork.read([a, b])[Artwork.box]?.map(\.data), [box])
 	}
@@ -70,6 +70,34 @@ final class ArtworkTests: XCTestCase {
 		let one = try flac(src.appendingPathComponent("1.flac"), disc: 1, pictures: [.init(type: 3, data: jpeg(10, 10))])
 		let two = try flac(src.appendingPathComponent("2.flac"), disc: 2, pictures: [.init(type: 3, data: jpeg(11, 11))])
 		XCTAssertEqual(Artwork.plan(lib, moves: [(one, lib.appendingPathComponent("Disc 1/01.flac")), (two, lib.appendingPathComponent("Disc 2/01.flac"))]),
-			["folder.jpg", "Disc 1/folder.jpg", "Disc 2/folder.jpg"])
+			["folder.jpg", "Artwork/00 front.jpg", "Disc 1/folder.jpg", "Disc 1/Artwork/00 front.jpg", "Disc 2/folder.jpg", "Disc 2/Artwork/00 front.jpg"])
+	}
+
+	/// ADR 0104, 0105: the full pass fills albums lacking folder.jpg or Artwork/00 front.jpg.
+	func testLackingArt() throws {
+		let root = try dir()
+		try flac(root.appendingPathComponent("A/One/01.flac"), disc: 1, pictures: [.init(type: 3, data: jpeg(10, 10))])
+		try flac(root.appendingPathComponent("A/Two/Disc 1/01.flac"), disc: 1, pictures: [.init(type: 3, data: jpeg(11, 11))])
+		try Data("mine".utf8).write(to: root.appendingPathComponent("A/One/folder.jpg"))
+		let items = [LibPlanner.Item(path: "A/One/01.flac", tags: [:]), LibPlanner.Item(path: "A/Two/Disc 1/01.flac", tags: [:])]
+		XCTAssertEqual(LibraryWatcher.lackingArt(root: root, items: items).map(\.lastPathComponent), ["One", "Two"])
+		for d in LibraryWatcher.lackingArt(root: root, items: items) { Artwork.export(d) }
+		XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("A/One/folder.jpg")), Data("mine".utf8), "never overwritten")
+		XCTAssertEqual(LibraryWatcher.lackingArt(root: root, items: items), [], "complete albums are not read again")
+	}
+
+	/// ADR 0103: empty folders (litter and Synology @eaDir aside) go; anything with a file stays; hidden ones stay.
+	func testRemoveEmptyDirs() throws {
+		let root = try dir(), fm = FileManager.default
+		try fm.createDirectory(at: root.appendingPathComponent("A/Old/Disc 1/@eaDir"), withIntermediateDirectories: true)
+		try Data("x".utf8).write(to: root.appendingPathComponent("A/Old/Disc 1/@eaDir/01.flac@SynoEAStream"))
+		try fm.createDirectory(at: root.appendingPathComponent("A/Old/Disc 2"), withIntermediateDirectories: true)
+		try Data("x".utf8).write(to: root.appendingPathComponent("A/Old/Disc 2/.DS_Store"))
+		try fm.createDirectory(at: root.appendingPathComponent("A/Keep/Scans"), withIntermediateDirectories: true)
+		try Data("x".utf8).write(to: root.appendingPathComponent("A/Keep/Scans/page.jpg"))
+		try fm.createDirectory(at: root.appendingPathComponent(".hidden/empty"), withIntermediateDirectories: true)
+		XCTAssertEqual(LibExecutor.removeEmptyDirs(root: root).sorted(), ["A/Old", "A/Old/Disc 1", "A/Old/Disc 2"])
+		XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent("A/Keep/Scans/page.jpg").path))
+		XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent(".hidden/empty").path))
 	}
 }
