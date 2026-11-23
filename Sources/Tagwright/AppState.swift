@@ -38,6 +38,9 @@ final class AppState: ObservableObject {
 	@Published var jobState = JobState.idle
 	@Published var working: [String: Set<StepID>] = [:]
 	@Published var coverBusy: String?
+	/// The disc whose artwork the inspector shows (ADR 0098): (album path, disc); any other album shows All discs.
+	@Published var discSel: (path: String, disc: Int)?
+	func coverDisc(_ a: Album) -> Int? { discSel?.path == a.id ? discSel?.disc : nil }
 	@Published var dialogError: String?   // shown in the open dialog (a failed move)   // steps a save is rewriting (tag editor), not a pipeline job
 	@Published var playing: String?
 	@Published var sheet: Sheet?
@@ -301,7 +304,7 @@ final class AppState: ObservableObject {
 			do {
 				var discs: [Int: Int] = [:]
 				for i in items { discs[i.disc, default: 0] += 1 }
-				try await Assign.apply(album: album, release: r, id: id, items: items, importTitles: importTitles, total: (discs, discs.count))
+				for line in try await Assign.apply(album: album, release: r, id: id, items: items, importTitles: importTitles, total: (discs, discs.count)) { appendLog(line) }
 				refresh(album)
 				if let a = albums.first(where: { $0.id == album.id }) {
 					do { try await Assign.fixTags(album: a, log: { [weak self] l in Task { @MainActor in self?.appendLog(l) } }) }
@@ -356,15 +359,15 @@ final class AppState: ObservableObject {
 
 	// MARK: tags
 
-	static let overrideTargets = ["ALBUM_ARTIST_OVERRIDE": "ALBUMARTIST", "ALBUM_TITLE_OVERRIDE": "ALBUM", "ALBUM_FORMAT_OVERRIDE": "ALBUM_FORMAT", "CATALOGNUMBER_OVERRIDE": "CATALOGNUMBER"]
+	nonisolated static let overrideTargets = ["ALBUM_ARTIST_OVERRIDE": "ALBUMARTIST", "ALBUM_TITLE_OVERRIDE": "ALBUM", "CATALOGNUMBER_OVERRIDE": "CATALOGNUMBER"]
 
 	/// The tag editor's and the album dialog's save (app.py write_album_fields + the track edits): changed album
 	/// fields, edited tracks; clearing an override restores the Discogs value; a format, catalogue or edition change
 	/// rewrites VERSION. The step circles spin meanwhile (Tags & cover + Filenames, or Filenames).
 	func writeAlbumFields(_ album: Album, fields f: [String: String], tracks rows: [String: TrackRow], done: String) {
 		let t0 = album.tracks.first?.tags ?? [:]
-		let cleared = f.filter { k, v in k != "ALBUM_EDITION" && v.trimmingCharacters(in: .whitespaces).isEmpty && !t0.first(k).isEmpty }.map(\.key)
-		let touchedVersion = ["ALBUM_FORMAT_OVERRIDE", "CATALOGNUMBER_OVERRIDE", "ALBUM_EDITION"].contains { f[$0] != nil }
+		let cleared = f.filter { k, v in !["ALBUM_EDITION", "ALBUM_FORMAT"].contains(k) && v.trimmingCharacters(in: .whitespaces).isEmpty && !t0.first(k).isEmpty }.map(\.key)
+		let touchedVersion = ["ALBUM_FORMAT", "CATALOGNUMBER_OVERRIDE", "ALBUM_EDITION"].contains { f[$0] != nil }
 		let dr = album.albumDR
 		AppLog.app("tags saved: \(album.name): \(f.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.isEmpty ? "(removed)" : "'\($0.value)'")" }.joined(separator: ", ").isEmpty ? "no album fields" : f.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.isEmpty ? "(removed)" : "'\($0.value)'")" }.joined(separator: ", ")); \(rows.count) track(s) edited")
 		for r in rows.values { AppLog.app("track edited: \(r.file): title='\(r.title)' disc=\(r.disc) track=\(r.track) artist='\(r.artist)'", .debug) }
@@ -372,6 +375,7 @@ final class AppState: ObservableObject {
 			for (k, raw) in f {
 				let v = raw.trimmingCharacters(in: .whitespaces)
 				if k == "ALBUM_EDITION" { t[k] = v.isEmpty ? nil : [v]; continue }
+				if k == "ALBUM_FORMAT" { t[k] = v.isEmpty ? nil : [v]; t["ALBUM_FORMAT_OVERRIDE"] = nil; continue }   // a plain field; empty means CD (ADR 0097)
 				if v.isEmpty { t[k] = nil; continue }
 				t[k] = [v]
 				if let target = Self.overrideTargets[k] { t[target] = [v] }
@@ -380,11 +384,12 @@ final class AppState: ObservableObject {
 			if let r = rows[url.path] {
 				t["TITLE"] = [r.title.trimmingCharacters(in: .whitespaces)]; t["DISCNUMBER"] = [r.disc.trimmingCharacters(in: .whitespaces)]; t["TRACKNUMBER"] = [r.track.trimmingCharacters(in: .whitespaces)]
 				let ar = r.artist.trimmingCharacters(in: .whitespaces), sub = r.subtitle.trimmingCharacters(in: .whitespaces)
-				t["ARTIST"] = ar.isEmpty ? nil : [ar]
+				let artists = Discogs.uniq(ar.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) })   // "A; B": one value each (ADR 0100)
+				t["ARTIST"] = artists.isEmpty ? nil : artists
 				t["SET SUBTITLE"] = sub.isEmpty ? nil : [sub]; t["DISCSUBTITLE"] = sub.isEmpty ? nil : [sub]
 			}
 			if touchedVersion, !t.first("DISCOGS_RELEASE_ID").isEmpty {
-				t["VERSION"] = [Naming.versionString(year: t.first("ALBUM_RELEASE_YEAR", "DATE"), dr: dr, format: t.first("ALBUM_FORMAT"), edition: t.first("ALBUM_EDITION"), catalog: t.first("CATALOGNUMBER", "CATALOG NUMBER"))]
+				t["VERSION"] = [Naming.versionString(year: t.first("ALBUM_RELEASE_YEAR", "DATE"), dr: dr, format: t.first("ALBUM_FORMAT").isEmpty ? "CD" : t.first("ALBUM_FORMAT"), edition: t.first("ALBUM_EDITION"), catalog: t.first("CATALOGNUMBER", "CATALOG NUMBER"))]
 			}
 		}
 		if !cleared.isEmpty { restoreFromDiscogs(album) }
@@ -407,26 +412,29 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	/// Album-level artwork write (ADR 0090): only pictures of `type` change; front holds one image, the others several.
-	/// `replacing`: the image this one takes the place of (a drop on a shown image, the cover menu's Upload).
-	func addArtwork(_ album: Album, data: Data, type: ArtType = .front, replacing: Data? = nil) {
+	/// Artwork write (ADR 0090, 0098, 0099): only pictures of `type` change, in every file or only those of `disc`;
+	/// front and box hold one image, the others several. `replacing`: the image this one takes the place of (a drop on
+	/// a shown image, the cover menu's Upload). `box`: the box-set cover (a front described "Box set", all discs).
+	func addArtwork(_ album: Album, data: Data, type: ArtType = .front, replacing: Data? = nil, disc: Int? = nil, box: Bool = false) {
 		guard let (d, mime, w, h) = ImageSize.embeddable(data, max: maxCover) else { notify("That is not an image", kind: .error); return }
-		let pic = Picture(type: type.rawValue, mime: mime, desc: "", width: UInt32(w), height: UInt32(h), data: d)
-		let urls = album.tracks.map(\.url)
+		let pic = Picture(type: type.rawValue, mime: mime, desc: box ? Artwork.boxDesc : "", width: UInt32(w), height: UInt32(h), data: d)
+		let group = box ? Artwork.box : type.rawValue, disc = box ? nil : disc
+		let urls = album.tracks.map(\.url), lib = inLibrary(album)
 		coverBusy = album.id; working[album.id] = [.tags]   // the fields spin and so does Tags & cover (web putCover)
 		Task {
 			defer { coverBusy = nil; working[album.id] = nil }
 			do {
 				try await Task.detached {
-					for u in urls {
-						var f = try AudioFile(url: u)
-						if type == .front { f.pictures.removeAll { $0.type == 3 } }
-						else if let r = replacing { f.pictures.removeAll { $0.type == type.rawValue && $0.data == r } }
-						if type != .front, f.pictures.contains(where: { $0.type == type.rawValue && $0.data == d }) { continue }
-						f.pictures.append(pic); try f.save()
+					var list: [Picture] = [pic]
+					if group != 3 && group != Artwork.box {   // back, leaflet, media: appended, or in place of `replacing`
+						list = (Artwork.read(urls, disc: disc)[group] ?? []).filter { $0.data != replacing }
+						if !list.contains(where: { $0.data == d }) { list.append(pic) }
 					}
+					try Artwork.write(urls, type: group, pictures: list, disc: disc)
+					if lib { Artwork.rebuild(album.url) }
 				}.value
 				refresh(album)
+				if lib { library.refresh(album.url) }
 				appendLog("cover artwork added"); notify("Cover updated", kind: .success)
 			} catch { notify(error.localizedDescription, kind: .error) }
 		}
@@ -434,43 +442,55 @@ final class AppState: ObservableObject {
 
 	func setCover(_ album: Album, data: Data) { addArtwork(album, data: data, type: .front) }
 
-	func removeArtwork(_ album: Album, type: ArtType, data: Data) {
-		let urls = album.tracks.map(\.url), dir = album.url
+	/// Remove one image (back, leaflet, media), the front cover or the box cover (`box`) of every file or of `disc`.
+	/// An all-discs front delete also removes the staging folder image (ADR 0024).
+	func removeArtwork(_ album: Album, type: ArtType, data: Data?, disc: Int? = nil, box: Bool = false) {
+		let urls = album.tracks.map(\.url), dir = album.url, lib = inLibrary(album)
+		let group = box ? Artwork.box : type.rawValue, disc = box ? nil : disc
 		Task {
-			try? await Task.detached {
-				for u in urls { var f = try AudioFile(url: u); f.pictures.removeAll { $0.type == type.rawValue && $0.data == data }; try f.save() }
-				if type == .front, let c = Scanner.folderImage(dir) { try? FileManager.default.removeItem(at: c) }
-			}.value
-			refresh(album)
-			appendLog("cover artwork removed"); notify("Cover removed", kind: .success)
+			do {
+				try await Task.detached {
+					let rest = group == 3 || group == Artwork.box ? [] : (Artwork.read(urls, disc: disc)[group] ?? []).filter { $0.data != data }
+					try Artwork.write(urls, type: group, pictures: rest, disc: disc)
+					if group == 3, disc == nil, !lib, let c = Scanner.folderImage(dir) { try? FileManager.default.removeItem(at: c) }
+					if lib { Artwork.rebuild(dir) }
+				}.value
+				refresh(album)
+				if lib { library.refresh(album.url) }
+				appendLog("cover artwork removed"); notify("Cover removed", kind: .success)
+			} catch { notify(error.localizedDescription, kind: .error) }
 		}
 	}
 
-	func removeCover(_ album: Album) { if let c = album.cover { removeArtwork(album, type: .front, data: c.data) } }
+	/// The Remove cover dialog: the front of the disc the inspector shows, or of every file.
+	func removeCover(_ album: Album) { removeArtwork(album, type: .front, data: nil, disc: coverDisc(album)) }
+
+	func inLibrary(_ a: Album) -> Bool { !libraryPath.isEmpty && a.url.standardizedFileURL.path.hasPrefix(URL(fileURLWithPath: libraryPath).standardizedFileURL.path + "/") }
 
 	/// Image data or an image file from the pasteboard (⇧⌘V, Paste buttons).
-	func pasteCover(_ album: Album, type: ArtType = .front) {
+	func pasteCover(_ album: Album, type: ArtType = .front, disc: Int? = nil, box: Bool = false) {
 		let pb = NSPasteboard.general
+		let put = { (d: Data) in self.addArtwork(album, data: d, type: type, disc: disc, box: box) }
 		if let u = (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first,
-			let d = try? Data(contentsOf: u), ImageSize.of(d) != nil { addArtwork(album, data: d, type: type); return }
-		if let d = pb.data(forType: .png) ?? pb.data(forType: NSPasteboard.PasteboardType("public.jpeg")) { addArtwork(album, data: d, type: type); return }
-		if let t = pb.data(forType: .tiff), let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) { addArtwork(album, data: png, type: type); return }
+			let d = try? Data(contentsOf: u), ImageSize.of(d) != nil { put(d); return }
+		if let d = pb.data(forType: .png) ?? pb.data(forType: NSPasteboard.PasteboardType("public.jpeg")) { put(d); return }
+		if let t = pb.data(forType: .tiff), let png = NSBitmapImageRep(data: t)?.representation(using: .png, properties: [:]) { put(png); return }
 		notify("No image on the clipboard", kind: .error)
 	}
 
-	func dropCover(_ album: Album, providers: [NSItemProvider], type: ArtType = .front, replacing: Data? = nil) -> Bool {
+	func dropCover(_ album: Album, providers: [NSItemProvider], type: ArtType = .front, replacing: Data? = nil, disc: Int? = nil, box: Bool = false) -> Bool {
 		for p in providers {
 			if p.hasItemConformingToTypeIdentifier("public.file-url") {
 				_ = p.loadObject(ofClass: URL.self) { u, _ in
 					guard let u, let d = try? Data(contentsOf: u) else { return }
-					Task { @MainActor in self.addArtwork(album, data: d, type: type, replacing: replacing) }
+					Task { @MainActor in self.addArtwork(album, data: d, type: type, replacing: replacing, disc: disc, box: box) }
 				}
 				return true
 			}
 			if p.hasItemConformingToTypeIdentifier("public.image") {
 				p.loadDataRepresentation(forTypeIdentifier: "public.image") { d, _ in
 					guard let d else { return }
-					Task { @MainActor in self.addArtwork(album, data: d, type: type, replacing: replacing) }
+					Task { @MainActor in self.addArtwork(album, data: d, type: type, replacing: replacing, disc: disc, box: box) }
 				}
 				return true
 			}
@@ -479,10 +499,10 @@ final class AppState: ObservableObject {
 		return false
 	}
 
-	func chooseArtwork(_ album: Album, type: ArtType) {
+	func chooseArtwork(_ album: Album, type: ArtType, disc: Int? = nil, box: Bool = false) {
 		let p = NSOpenPanel()
 		p.allowedContentTypes = [.jpeg, .png]
-		if p.runModal() == .OK, let u = p.url, let d = try? Data(contentsOf: u) { addArtwork(album, data: d, type: type) }
+		if p.runModal() == .OK, let u = p.url, let d = try? Data(contentsOf: u) { addArtwork(album, data: d, type: type, disc: disc, box: box) }
 	}
 
 	// MARK: playback (ADR 0015, 0068)

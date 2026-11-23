@@ -46,7 +46,7 @@ struct DiscogsHit: Identifiable, Hashable {
 struct DTrack: Identifiable, Hashable {
 	var id: Int
 	var disc: Int, number: Int, title: String, artist: String, seconds: Int, subtitle: String
-	var writers: [String] = [], producers: [String] = [], engineers: [String] = []
+	var credits = Tags()   // ARTIST and the credit tags, one value per name (ADR 0100)
 	var position = ""   // the Discogs position as written ("A1", "2-3"), TRACK_NUMBER_TEXT
 }
 
@@ -130,10 +130,7 @@ enum Discogs {
 		var out: [DTrack] = []
 		var heading = "", headDisc: Int?
 		let albumArtist = artistNames(r["artists"] as? [[String: Any]] ?? [])
-		func credits(_ t: [String: Any], _ roles: [String]) -> [String] {
-			let ea = (t["extraartists"] as? [[String: Any]] ?? []).filter { a in roles.contains { (a["role"] as? String ?? "").lowercased().contains($0) } }
-			return ea.map { name($0["name"] as? String ?? "") }
-		}
+		let order = Credits.order(r)
 		func parse(_ pos: String) -> (Int, Int)? {
 			let u = pos.uppercased()
 			if let m = u.range(of: #"^(?:CD|DVD)?(\d+)[-.](\d+)"#, options: .regularExpression) {
@@ -169,8 +166,7 @@ enum Discogs {
 			let isDisc = heading.range(of: #"^(?:disc|cd|dvd)\s*\d+"#, options: [.regularExpression, .caseInsensitive]) != nil
 			var tr = DTrack(id: out.count, disc: disc, number: no, title: mainTitle, artist: ta.isEmpty ? albumArtist : ta, seconds: secs, subtitle: isDisc ? "" : heading)
 			tr.position = pos
-			tr.writers = credits(t, writerRoles)
-			tr.producers = credits(t, ["producer"]); tr.engineers = credits(t, ["engineer"])
+			tr.credits = Credits.trackTags(r, entry: t, order: order)
 			out.append(tr)
 		}
 		return out
@@ -224,7 +220,6 @@ enum Discogs {
 	}
 
 	/// Player tags filled from a release when empty (ADR 0053 table); catalogue number and format are led by Discogs (ADR 0080).
-	static let writerRoles = ["written-by", "written by", "composed by", "music by", "songwriter", "lyrics by", "words by"]   // app.py WRITER_ROLES
 	static func uniq(_ xs: [String]) -> [String] { var seen = Set<String>(); return xs.filter { !$0.isEmpty && seen.insert($0).inserted } }
 
 	/// The Discogs-owned DISCOGS_* tags of a release (app.py release_tags): replaced on every assignment.
@@ -276,11 +271,7 @@ enum Discogs {
 		func company(_ type: String) -> [String] { uniq(companies.filter { ($0["entity_type_name"] as? String ?? "").lowercased() == type }.map { name($0["name"] as? String ?? "") }) }
 		set("COPYRIGHT", [(company("phonographic copyright (p)").map { "℗ \($0)" } + company("copyright (c)").map { "© \($0)" }).joined(separator: ", ")])
 		set("PUBLISHER", [company("published by").joined(separator: ", ")])
-		let ea = r["extraartists"] as? [[String: Any]] ?? []
-		func role(_ keys: [String]) -> [String] { uniq(ea.filter { a in keys.contains { (a["role"] as? String ?? "").lowercased().contains($0) } }.map { name($0["name"] as? String ?? "") }) }
-		set("COMPOSER", role(writerRoles))
-		set("PRODUCER", role(["producer"])); set("ENGINEER", role(["engineer"]))
-		set("PERSONNEL", uniq(ea.compactMap { e in let n = e["name"] as? String ?? "", r = e["role"] as? String ?? ""; return n.isEmpty || r.isEmpty ? nil : "\(name(n)) - \(r)" }))
+		// the credits (COMPOSER ... PERSONNEL) are per track: Credits.trackTags (ADR 0100)
 		return t
 	}
 

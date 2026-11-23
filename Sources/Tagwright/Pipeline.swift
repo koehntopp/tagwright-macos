@@ -409,13 +409,12 @@ enum Pipeline {
 		let plan = movePlan(album: album, library: library)
 		guard plan.problems.isEmpty else { throw StepError(plan.problems[0]) }
 		let fm = FileManager.default
-		let art = Artwork.read(album.tracks.map(\.url))   // read before the files move away
 		for (a, b) in plan.moves {
 			try fm.createDirectory(at: b.deletingLastPathComponent(), withIntermediateDirectories: true)
 			try fm.moveItem(at: a, to: b)
 			log("moved \(b.lastPathComponent)")
 		}
-		Artwork.export(art, target: plan.folder, log: log)   // ADR 0091: cover files from the embedded art
+		Artwork.export(plan.folder, log: log)   // ADR 0091, 0098: cover files per folder from the embedded art
 		if deleteSource { try? fm.removeItem(at: album.url) }
 	}
 }

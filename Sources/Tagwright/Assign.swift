@@ -114,7 +114,17 @@ enum Assign {
 
 	struct Item { var url: URL; var track: DTrack; var disc: Int; var number: Int; var title: String; var subtitle = "" }
 
-	static func apply(album: Album, release r: [String: Any], id: Int, items: [Item], importTitles: Bool, total: (disc: [Int: Int], discs: Int)) async throws {
+	/// Files whose update would lose a required tag, collected while the detached update runs (ADR 0100).
+	final class Lost: @unchecked Sendable {
+		private let lock = NSLock()
+		private(set) var lines: [String] = []
+		func add(_ file: String, _ tags: [String]) { lock.lock(); lines.append("\(file): not saved, it would lose \(tags.joined(separator: ", "))"); lock.unlock() }
+	}
+
+	/// Returns a line per file that was not saved because it would lose a required tag (ADR 0100).
+	@discardableResult
+	static func apply(album: Album, release r: [String: Any], id: Int, items: [Item], importTitles: Bool, total: (disc: [Int: Int], discs: Int)) async throws -> [String] {
+		let lost = Lost()
 		let artists = Discogs.artistNames(r["artists"] as? [[String: Any]] ?? [])
 		let labels = r["labels"] as? [[String: Any]] ?? []
 		let fmts = (r["formats"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }.filter { !["Box Set", "All Media"].contains($0) }
@@ -128,6 +138,8 @@ enum Assign {
 		try await Task.detached {
 			try Pipeline.update(urls) { url, t in
 				guard let it = byURL[url.path] else { return }
+				let before = t
+				let trackArtists = it.track.credits["ARTIST"] ?? [it.track.artist.isEmpty ? artists : it.track.artist].filter { !$0.isEmpty }
 				t["DISCOGS_RELEASE_ID"] = ["\(id)"]
 				if t.first("ALBUM_ARTIST_OVERRIDE").isEmpty, !artists.isEmpty { t["ALBUMARTIST"] = [artists] }
 				if t.first("ALBUM_FORMAT_OVERRIDE").isEmpty, let f = fmts.first { t["ALBUM_FORMAT"] = [f] }
@@ -137,17 +149,15 @@ enum Assign {
 				}
 				// ADR 0080 / app.py tracks_apply: the release leads its player tags (replaced, so a re-assignment
 				// leaves nothing of the previous release); nothing is written where the release has no value
-				for (k, v) in player where !["COMPOSER", "PRODUCER", "ENGINEER"].contains(k) { t[k] = v }
-				for (k, roles) in [("COMPOSER", it.track.writers), ("PRODUCER", it.track.producers), ("ENGINEER", it.track.engineers)] {
-					let v = roles.isEmpty ? (player[k] ?? []) : roles
-					if !v.isEmpty { t[k] = v }
-				}
+				for (k, v) in player { t[k] = v }
+				for (k, v) in it.track.credits where k != "ARTIST" && !v.isEmpty { t[k] = v }   // one value per name (ADR 0100)
+				for k in t.keys where Credits.isLegacy(k) { t[k] = nil }   // earlier taggers' credit lists and junk (ADR 0100)
 				for k in t.keys where k.hasPrefix("DISCOGS_") && k != "DISCOGS_RELEASE_ID" { t[k] = nil }   // Discogs-owned: this release's only
 				for (k, v) in owned { t[k] = v }
 				t["DISCOGS_RELEASE_ORDINAL_POSITION"] = ["\(it.track.id)"]
 				if !it.track.position.isEmpty { t["TRACK_NUMBER_TEXT"] = [it.track.position] }
 				if importTitles {
-					t["TITLE"] = [it.title]; t["ARTIST"] = [it.track.artist.isEmpty ? artists : it.track.artist]
+					t["TITLE"] = [it.title]; if !trackArtists.isEmpty { t["ARTIST"] = trackArtists }
 					t["TRACKNUMBER"] = ["\(it.number)"]; t["DISCNUMBER"] = ["\(it.disc)"]
 					t["TRACKTOTAL"] = ["\(total.disc[it.disc] ?? 0)"]; t["TOTALTRACKS"] = ["\(total.disc[it.disc] ?? 0)"]
 					t["DISCTOTAL"] = ["\(total.discs)"]; t["TOTALDISCS"] = ["\(total.discs)"]
@@ -156,8 +166,9 @@ enum Assign {
 					if t.first("TITLE").isEmpty { t["TITLE"] = [it.title] }
 					if t.first("DISCNUMBER").isEmpty { t["DISCNUMBER"] = ["\(it.disc)"] }
 					if t.first("TRACKNUMBER").isEmpty { t["TRACKNUMBER"] = ["\(it.number)"] }
-					if t.first("ARTIST").isEmpty { t["ARTIST"] = [it.track.artist.isEmpty ? artists : it.track.artist] }
+					if t.first("ARTIST").isEmpty, !trackArtists.isEmpty { t["ARTIST"] = trackArtists }
 				}
+				if !Credits.lostRequired(before, t).isEmpty { lost.add(url.lastPathComponent, Credits.lostRequired(before, t)); t = before }   // never take a required tag away (ADR 0100)
 			}
 			if let image, let first = urls.first, ImageSize.of(image) != nil {
 				var f = try AudioFile(url: first)
@@ -165,5 +176,6 @@ enum Assign {
 				_ = f
 			}
 		}.value
+		return lost.lines
 	}
 }

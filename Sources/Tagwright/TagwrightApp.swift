@@ -10,10 +10,11 @@ struct TagwrightApp: App {
 					NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); app.rescan()
 					// TW_OPEN=discogs|musicbrainz|tageditor opens that dialog on the first album (screenshots, demos)
 					if let o = ProcessInfo.processInfo.environment["TW_OPEN"] {
-						Task { try? await Task.sleep(for: .seconds(2)); app.search = ""; app.filter = .all; app.selection = app.shown[min(Int(ProcessInfo.processInfo.environment["TW_ALBUM"] ?? "0") ?? 0, max(0, app.shown.count - 1))].id
+						Task { try? await Task.sleep(for: .seconds(2)); for _ in 0..<60 where app.shown.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }; guard !app.shown.isEmpty else { return }; app.search = ""; app.filter = .all; app.selection = app.shown[min(Int(ProcessInfo.processInfo.environment["TW_ALBUM"] ?? "0") ?? 0, max(0, app.shown.count - 1))].id
 							if o == "lyrics" { app.lyricsTrack = app.selected?.tracks.first?.id }
 							if o == "tracks" { app.editorTab = 1 }
 							if o == "list" { app.listView = true }
+							if let d = Int(ProcessInfo.processInfo.environment["TW_DISC"] ?? ""), let id = app.selection { app.discSel = (id, d) }   // TW_DISC=n: that disc's artwork
 							app.sheet = ["discogs": .discogs, "musicbrainz": .musicbrainz, "tageditor": .tagEditor, "tracks": .tagEditor, "library": .library, "settings": .settings, "lyrics": .lyrics, "move": .move, "album": .albumEdit, "coverdelete": .coverDelete][o] }
 					}
 				}

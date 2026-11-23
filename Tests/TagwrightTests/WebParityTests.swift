@@ -134,8 +134,24 @@ final class WebParityTests: XCTestCase {
 			let r = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: json)) as? [String: Any])
 			let w = try XCTUnwrap(try web("release_tags", [json.path]).first as? [String: [String: [String]]])
 			XCTAssertEqual(Discogs.discogsTags(r), w["discogs"], "DISCOGS_* of \(id)")
-			var player = Discogs.playerTags(r); player["COMPOSER"] = nil   // the web app keeps the writers apart
-			XCTAssertEqual(player, w["player"], "player tags of \(id)")
+			XCTAssertEqual(Discogs.playerTags(r), w["player"], "player tags of \(id)")
+		}
+	}
+
+	/// ADR 0100: ARTIST and the credits of every track, one value per name, track ranges respected.
+	func testTrackCredits() throws {
+		for id in ["9886890", "1524544"] {
+			let json = Self.root.appendingPathComponent("Tests/TagwrightTests/Fixtures/discogs/\(id).json")
+			let r = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: json)) as? [String: Any])
+			let w = try XCTUnwrap(try web("track_tags", [json.path]).first as? [[String: [String]]])
+			var flat: [([String: Any], [String: Any]?)] = []
+			for t in r["tracklist"] as? [[String: Any]] ?? [] {
+				let parts = t["type_"] as? String == "index" ? t["sub_tracks"] as? [[String: Any]] ?? [] : []
+				if !parts.isEmpty || t["type_"] as? String == "track" { flat.append((t, nil)) }
+				flat += parts.map { ($0, t) }
+			}
+			XCTAssertEqual(flat.count, w.count, "tracks of \(id)")
+			for (i, (e, p)) in flat.enumerated() { XCTAssertEqual(Credits.trackTags(r, entry: e, parent: p), w[i], "track \(i) of \(id)") }
 		}
 	}
 }

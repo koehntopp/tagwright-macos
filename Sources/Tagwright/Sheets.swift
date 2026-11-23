@@ -85,7 +85,7 @@ struct SettingsSheet: View {
 struct MoveSheet: View {
 	@EnvironmentObject var app: AppState
 	var album: Album
-	@State private var art: [UInt32: [Picture]]?   // the embedded pictures, read once
+	@State private var covers: [String] = []   // the cover files the move creates, per folder (ADR 0098)
 	var body: some View {
 		let lib = URL(fileURLWithPath: app.libraryPath.isEmpty ? "/missing" : app.libraryPath)
 		let plan = Pipeline.movePlan(album: album, library: lib, extra: app.mbCheck[album.id]?.mismatches ?? [])
@@ -93,7 +93,6 @@ struct MoveSheet: View {
 		let rel = plan.folder.path.replacingOccurrences(of: lib.path + "/", with: "")
 		let exists = plan.moves.map { FileManager.default.fileExists(atPath: $0.to.path) }
 		let problems = (app.libraryPath.isEmpty ? ["Choose a library folder in Settings first."] : []) + plan.problems + zip(plan.moves, exists).filter(\.1).map { "\($0.0.to.path.replacingOccurrences(of: lib.path + "/", with: "")) already exists in the library; nothing is overwritten" }
-		let covers = art.map { Artwork.plan($0, target: plan.folder) } ?? []
 		Shell(title: "Move to the library?", width: 640, err: app.dialogError, saveLabel: moving ? "Moving…" : "Move", saveDisabled: !problems.isEmpty || moving || plan.moves.isEmpty, danger: moving, save: { app.dialogError = nil; app.move(album) }, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 8) {
 				Text("“\(album.title)” moves \(plan.moves.count) track\(plan.moves.count == 1 ? "" : "s") into the library, each to its place from the layout in Settings.").font(.system(size: 14))
@@ -118,7 +117,11 @@ struct MoveSheet: View {
 			}
 		}
 		.onAppear { app.dialogError = nil }
-		.task { let urls = album.tracks.map(\.url); art = await Task.detached { Artwork.read(urls) }.value }
+		.task {
+			let p = Pipeline.movePlan(album: album, library: URL(fileURLWithPath: app.libraryPath.isEmpty ? "/missing" : app.libraryPath))
+			let moves = p.moves.map { ($0.from, $0.to) }
+			covers = await Task.detached { Artwork.plan(p.folder, moves: moves) }.value
+		}
 	}
 	func k(_ s: String) -> some View { Text(s).font(.system(size: 12)).foregroundStyle(Color.slate(500)).frame(width: 88, alignment: .leading) }
 	func mono(_ s: String) -> some View { Text(s).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
@@ -172,7 +175,8 @@ struct CoverDeleteSheet: View {
 	var album: Album
 	var body: some View {
 		Shell(title: "Remove cover?", width: 384, saveLabel: "Remove cover", save: { app.sheet = nil; app.removeCover(album) }, onClose: { app.sheet = nil }) {
-			Text("The embedded cover is removed from every file of this album, and a cover.jpg or folder image in the album folder is deleted.").font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
+			let disc = app.coverDisc(album)
+			Text(disc.map { "The embedded cover is removed from the files of disc \($0); the other discs keep theirs." } ?? "The embedded cover is removed from every file of this album, and a cover.jpg or folder image in the album folder is deleted.").font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
 		}
 	}
 }
@@ -327,7 +331,7 @@ struct TagEditorSheet: View {
 
 	init(album: Album, startTab: Int = 0) { self.album = album; self.startTab = startTab; _tab = State(initialValue: startTab) }
 
-	static let overrideKeys = ["ALBUM_ARTIST_OVERRIDE", "ALBUM_TITLE_OVERRIDE", "ALBUM_FORMAT_OVERRIDE", "ALBUM_EDITION", "CATALOGNUMBER_OVERRIDE"]
+	static let overrideKeys = ["ALBUM_ARTIST_OVERRIDE", "ALBUM_TITLE_OVERRIDE", "ALBUM_FORMAT", "ALBUM_EDITION", "CATALOGNUMBER_OVERRIDE"]   // ALBUM_FORMAT is a plain field (ADR 0097)
 
 	@State private var tab: Int
 	@State private var fields: [String: String] = [:]
@@ -364,9 +368,12 @@ struct TagEditorSheet: View {
 	}
 
 	func load() {
-		for k in Self.overrideKeys { fields[k] = t0.first(k) }
+		for k in Self.overrideKeys { fields[k] = Self.shown(t0, k) }
 		rows = album.tracks.map { TrackRow(track: $0) }
 	}
+
+	/// The value a field shows: a legacy ALBUM_FORMAT_OVERRIDE still counts for the format (ADR 0097).
+	static func shown(_ t: Tags, _ k: String) -> String { k == "ALBUM_FORMAT" ? t.first("ALBUM_FORMAT", "ALBUM_FORMAT_OVERRIDE") : t.first(k) }
 
 	// MARK: Album tab
 
@@ -388,7 +395,7 @@ struct TagEditorSheet: View {
 					Field(label: "Album Title Override") { input("ALBUM_TITLE_OVERRIDE"); if hasID && !discogsTitle.isEmpty { small("ALBUM TITLE: \(discogsTitle)") } }
 				}
 				GridRow {
-					Field(label: "Album Format Override", help: "For example CD, SACD, Vinyl. Saved as ALBUM_FORMAT_OVERRIDE and kept when a Discogs release is assigned. Empty restores the Discogs format.") { input("ALBUM_FORMAT_OVERRIDE"); if !t0.first("ALBUM_FORMAT").isEmpty { small("ALBUM FORMAT: \(t0.first("ALBUM_FORMAT"))") } }
+					Field(label: "Album Format", help: "For example CD, SACD, Vinyl. Filled from Discogs when a release is assigned; type over it to change it. Empty means CD.") { input("ALBUM_FORMAT") }
 					Field(label: "Album Edition", help: "For example Remastered or Gold Disc. Part of the version string.") { input("ALBUM_EDITION") }
 				}
 			}
@@ -471,7 +478,7 @@ struct TagEditorSheet: View {
 
 	func save() {
 		var changed: [String: String] = [:]
-		for k in Self.overrideKeys where (fields[k] ?? "").trimmingCharacters(in: .whitespaces) != t0.first(k) { changed[k] = fields[k] ?? "" }
+		for k in Self.overrideKeys where (fields[k] ?? "").trimmingCharacters(in: .whitespaces) != Self.shown(t0, k) { changed[k] = fields[k] ?? "" }
 		var edited: [String: TrackRow] = [:]
 		for r in rows { if let o = album.tracks.first(where: { $0.id == r.id }), TrackRow(track: o) != r { edited[r.id] = r } }
 		if changed.isEmpty && edited.isEmpty { app.sheet = nil; return }
@@ -487,7 +494,7 @@ struct TrackRow: Equatable, Identifiable {
 	var length: Double, format: String, formatHelp: String, channels: Int, lyrics: LyricsKind
 	init(track t: Track) {
 		id = t.id; file = t.url.lastPathComponent
-		disc = t.tags.first("DISCNUMBER"); track = t.tags.first("TRACKNUMBER"); title = t.tags.first("TITLE"); artist = t.tags.first("ARTIST"); subtitle = t.tags.first("SET SUBTITLE")
+		disc = t.tags.first("DISCNUMBER"); track = t.tags.first("TRACKNUMBER"); title = t.tags.first("TITLE"); artist = (t.tags["ARTIST"] ?? []).joined(separator: "; "); subtitle = t.tags.first("SET SUBTITLE")
 		length = t.info.duration; format = t.formatLabel; formatHelp = t.formatHelp; channels = t.info.channels; lyrics = t.lyricsKind
 	}
 	static func == (a: TrackRow, b: TrackRow) -> Bool { a.id == b.id && a.disc == b.disc && a.track == b.track && a.title == b.title && a.artist == b.artist && a.subtitle == b.subtitle }

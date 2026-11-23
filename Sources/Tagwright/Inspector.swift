@@ -14,8 +14,15 @@ struct Inspector: View {
 				ScrollView {
 					VStack(alignment: .leading, spacing: 20) {
 						header(a)
-						LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 4), spacing: 8) {
-							ForEach(ArtType.allCases) { t in ArtworkField(album: a, type: t) }
+						VStack(alignment: .leading, spacing: 8) {
+							let disc = app.coverDisc(a)
+							if a.discs.count > 1 {   // ADR 0098: the artwork of one disc
+								DiscSwitch(discs: a.discs, disc: disc) { d in app.discSel = d.map { (a.id, $0) } }
+							}
+							LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 4), spacing: 8) {
+								// on a multi-disc album, All discs edits the box-set cover in the first field (ADR 0099)
+								ForEach(ArtType.allCases) { t in ArtworkField(album: a, type: t, disc: disc, box: t == .front && a.discs.count > 1 && disc == nil) }
+							}
 						}
 						actions(a)
 						notes(a)
@@ -348,20 +355,23 @@ struct ArtworkField: View {
 	@EnvironmentObject var app: AppState
 	var album: Album
 	var type: ArtType
+	var disc: Int? = nil   // ADR 0098: only this disc's files
+	var box = false   // ADR 0099: the box-set cover
 	@State private var at = 0
 	@State private var targeted = false
+	@FocusState private var focused: Bool   // a click focuses the field; ⌘V then pastes into it (ADR 0096)
 
 	var body: some View {
-		let items = album.artwork[type.rawValue] ?? []
+		let items = box ? album.artwork[Artwork.box] ?? [] : disc.map { album.discArtwork[$0]?[type.rawValue] ?? [] } ?? album.artwork[type.rawValue] ?? []
 		let multiple = type != .front
 		let i = items.isEmpty ? 0 : min(at, items.count - 1)
 		let current = items.isEmpty ? nil : items[i]
-		let fallback = type == .front && items.isEmpty && album.cover?.embedded == false ? album.cover : nil
-		let warn = type == .front ? album.issues.first { $0.action == "cover" }?.text : nil
+		let fallback = type == .front && !box && disc == nil && items.isEmpty && album.cover?.embedded == false ? album.cover : nil
+		let warn = type == .front && !box ? album.issues.first { $0.action == "cover" }?.text : nil
 		let busy = app.coverBusy == album.id
 		VStack(alignment: .leading, spacing: 4) {
 			HStack(spacing: 4) {
-				Text(type == .front ? "Front Cover" : type.label).font(.system(size: 12, weight: .medium)).foregroundStyle(Color.slate(700)).lineLimit(1)
+				Text(box ? "Box Cover" : type.label).font(.system(size: 12, weight: .medium)).foregroundStyle(Color.slate(700)).lineLimit(1)
 				if warn != nil { LucideIcon(icon: .triangleAlert, size: 12).foregroundStyle(Color.amber(700)) }
 				Spacer(minLength: 2)
 				if let c = current ?? fallback {
@@ -388,22 +398,20 @@ struct ArtworkField: View {
 					small("‹", .slate(600), disabled: items.count < 2, help: "Previous image") { at = (i - 1 + items.count) % items.count }
 					small("›", .slate(600), disabled: items.count < 2, help: "Next image") { at = (i + 1) % items.count }
 				}
-				if current == nil && fallback == nil { small("Upload", .slate(700)) { app.chooseArtwork(album, type: type) } }
+				if current == nil && fallback == nil { small("Upload", .slate(700)) { app.chooseArtwork(album, type: type, disc: disc, box: box) } }
 				if current != nil || fallback != nil {
-					small("Delete", .rose(600), hover: .rose(50)) {
-						if type == .front { app.sheet = .coverDelete } else if let c = current { app.removeArtwork(album, type: type, data: c.data) }
-					}
+					small("Delete", .rose(600), hover: .rose(50)) { remove(current) }
 				}
-				if multiple { small("+", .slate(700), help: "Add an image") { app.chooseArtwork(album, type: type) } }
+				if multiple { small("+", .slate(700), help: "Add an image") { app.chooseArtwork(album, type: type, disc: disc, box: box) } }
 				if type == .front {
 					Spacer(minLength: 0)
 					Menu {
-						Button { app.chooseArtwork(album, type: .front) } label: { Label { Text("Upload image") } icon: { Image(nsImage: Lucide.upload.image.sized(16)) } }
-						Button { app.pasteCover(album) } label: { Label { Text("Paste image") } icon: { Image(nsImage: Lucide.clipboardPaste.image.sized(16)) } }
+						Button { app.chooseArtwork(album, type: .front, disc: disc, box: box) } label: { Label { Text("Upload image") } icon: { Image(nsImage: Lucide.upload.image.sized(16)) } }
+						Button { app.pasteCover(album, disc: disc, box: box) } label: { Label { Text("Paste image") } icon: { Image(nsImage: Lucide.clipboardPaste.image.sized(16)) } }
 						Button { open("https://covers.musichoarders.xyz/?" + Self.query(["artist": album.artist, "album": album.title])) } label: { Label { Text("Search musichoarders") } icon: { Image(nsImage: Asset.musichoarders.image.onTile(16)) } }
 						Button { open("https://albumartexchange.com/covers?" + Self.query(["q": [album.artist, album.title].filter { !$0.isEmpty }.joined(separator: " "), "fltr": "ALL", "sort": "SCORE", "status": "", "size": "any"])) } label: { Label { Text("Search albumartexchange") } icon: { Image(nsImage: Asset.albumartexchange.image.sized(16)) } }
 						Divider()
-						Button(role: .destructive) { app.sheet = .coverDelete } label: { Label { Text("Remove cover") } icon: { Image(nsImage: Lucide.trash2.image.sized(16)) } }
+						Button(role: .destructive) { remove(current) } label: { Label { Text("Remove cover") } icon: { Image(nsImage: Lucide.trash2.image.sized(16)) } }
 					} label: { LucideIcon(icon: .ellipsis, size: 14).foregroundStyle(Color.slate(500)) }
 						.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Cover options")
 				}
@@ -412,9 +420,19 @@ struct ArtworkField: View {
 		.padding(8)
 		.frame(minHeight: 144, alignment: .top)
 		.background(warn != nil ? Color.amber(50) : Color.slate(50), in: RoundedRectangle(cornerRadius: 12))
-		.overlay(RoundedRectangle(cornerRadius: 12).stroke(targeted ? Color.slate(800) : warn != nil ? Color.amber(400) : Color.slate(200), lineWidth: targeted ? 4 : 1))
+		.overlay(RoundedRectangle(cornerRadius: 12).stroke(targeted ? Color.slate(800) : focused ? Color.slate(400) : warn != nil ? Color.amber(400) : Color.slate(200), lineWidth: targeted ? 4 : focused ? 2 : 1))
 		.help(warn ?? "")
-		.onDrop(of: ["public.file-url", "public.image"], isTargeted: $targeted) { app.dropCover(album, providers: $0, type: type, replacing: current?.data) }
+		.onDrop(of: ["public.file-url", "public.image"], isTargeted: $targeted) { app.dropCover(album, providers: $0, type: type, replacing: current?.data, disc: disc, box: box) }
+		.focusable().focused($focused).focusEffectDisabled()
+		.simultaneousGesture(TapGesture().onEnded { focused = true })
+		.onPasteCommand(of: [.fileURL, .png, .jpeg, .tiff, .image]) { _ in app.pasteCover(album, type: type, disc: disc, box: box) }   // front replaced, others appended (ADR 0096)
+	}
+
+	/// Delete: one back/leaflet/media image, the box cover at once, the front cover after the Remove cover dialog.
+	func remove(_ c: Cover?) {
+		if box { app.removeArtwork(album, type: .front, data: c?.data, box: true) }
+		else if type == .front { app.sheet = .coverDelete }
+		else if let c { app.removeArtwork(album, type: type, data: c.data, disc: disc) }
 	}
 
 	func small(_ t: String, _ c: Color, hover: Color = .white, disabled: Bool = false, help: String = "", _ action: @escaping () -> Void) -> some View {
@@ -441,5 +459,48 @@ struct TinyButton: ButtonStyle {
 				.background(over && enabled ? s.hover : .clear, in: RoundedRectangle(cornerRadius: 4))
 				.opacity(enabled ? 1 : 0.3).onHover { over = $0 }.contentShape(Rectangle())
 		}
+	}
+}
+
+/// "Artwork for" (inspector.tsx DiscSwitch, ADR 0098): All discs, Disc 1, Disc 2, … in a pill across the width of
+/// the cover fields; when the discs do not fit it scrolls sideways with ‹ › at its ends, keeping the chosen disc in view.
+struct DiscSwitch: View {
+	var discs: [Int]
+	var disc: Int?
+	var choose: (Int?) -> Void
+	@State private var pos = ScrollPosition(idType: Int.self)
+	@State private var geo = (x: 0.0, width: 0.0, content: 0.0)
+
+	var body: some View {
+		let left = geo.x > 1, right = geo.x + geo.width < geo.content - 1
+		HStack(spacing: 8) {
+			Text("Artwork for").font(.system(size: 12)).foregroundStyle(Color.slate(500)).fixedSize()
+			HStack(spacing: 0) {
+				if left || right { arrow("‹", "Earlier discs", enabled: left) { pos.scrollTo(x: max(0, geo.x - geo.width * 0.6)) } }
+				ScrollView(.horizontal, showsIndicators: false) {
+					HStack(spacing: 0) {
+						ForEach([-1] + discs, id: \.self) { d in
+							let on = (d == -1 ? nil : d) == disc
+							Button { choose(d == -1 ? nil : d) } label: {
+								Text(d == -1 ? "All discs" : "Disc \(d)").font(.system(size: 12)).lineLimit(1).fixedSize()
+									.foregroundStyle(on ? Color.slate(900) : Color.slate(500)).padding(.horizontal, 10).frame(maxHeight: .infinity)
+									.background(on ? Color.slate(200) : .clear, in: Capsule()).contentShape(Capsule())
+							}.buttonStyle(.plain).pointer().id(d)
+						}
+					}.scrollTargetLayout()
+				}
+				.scrollPosition($pos)
+				.onScrollGeometryChange(for: [Double].self) { [$0.contentOffset.x, $0.containerSize.width, $0.contentSize.width] } action: { _, v in geo = (v[0], v[1], v[2]) }
+				if left || right { arrow("›", "Later discs", enabled: right) { pos.scrollTo(x: geo.x + geo.width * 0.6) } }
+			}
+			.padding(2).frame(height: 28).frame(maxWidth: .infinity)
+			.background(.white, in: Capsule()).overlay(Capsule().stroke(Color.slate(300)))
+		}
+		.onChange(of: disc) { withAnimation { pos.scrollTo(id: disc ?? -1) } }
+	}
+
+	func arrow(_ t: String, _ help: String, enabled: Bool, _ action: @escaping () -> Void) -> some View {
+		Button { withAnimation { action() } } label: { Text(t).font(.system(size: 14)).foregroundStyle(Color.slate(500)).frame(width: 24).frame(maxHeight: .infinity).contentShape(Rectangle()) }
+			.buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.3).help(help)
 	}
 }

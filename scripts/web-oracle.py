@@ -16,7 +16,7 @@ from pathlib import Path
 WEB = Path(__file__).resolve().parents[2] / 'tagwright'
 sys.path.insert(0, str(WEB))
 
-from pipeline import fixtags, lyrics, naming  # noqa: E402
+from pipeline import credits, fixtags, lyrics, naming  # noqa: E402
 from pipeline.tagio import tag  # noqa: E402
 from library import template  # noqa: E402
 
@@ -40,9 +40,15 @@ def upper(t: dict) -> dict:
 
 
 def release_tags(c):
-	ns = from_app('release_tags', 'clean_artist', 'uniq', 'by_role', 'COPYRIGHT_TYPES', 'DISCOGS_FIXED_KEYS', 'WRITER_ROLES')
+	ns = from_app('release_tags', 'COPYRIGHT_TYPES', 'DISCOGS_FIXED_KEYS', clean_artist=credits.clean_artist, uniq=credits.uniq)
 	p, d = ns['release_tags'](json.loads(Path(c).read_text()))
 	return {'player': p, 'discogs': d}
+
+
+def track_tags(c):
+	"""ARTIST and the credit tags of every track of a release file, in flat_tracks order (ADR 0100)."""
+	r = json.loads(Path(c).read_text())
+	return [credits.track_tags(r, i) for i in range(len(credits.flat_tracks(r)))]
 
 
 def album_issues(c):
@@ -97,6 +103,7 @@ FNS = {
 	'clean': naming.clean,
 	'version_string': lambda c: fixtags.version_string(*c),
 	'release_tags': release_tags,
+	'track_tags': track_tags,
 	'album_issues': album_issues,
 	'lyric_kind': lyric_kind,
 	'template_target': template_target,

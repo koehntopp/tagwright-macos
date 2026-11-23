@@ -127,7 +127,9 @@ struct Album: Identifiable {
 	var url: URL
 	var tracks: [Track]
 	var cover: Cover?
-	var artwork: [UInt32: [Cover]] = [:]
+	var artwork: [UInt32: [Cover]] = [:]   // all discs, by type; Artwork.box holds the box-set cover (ADR 0099)
+	var discArtwork: [Int: [UInt32: [Cover]]] = [:]   // per disc (ADR 0098)
+	var discs: [Int] = []   // the disc numbers the files carry
 	var id: String { url.path }
 	var name: String { url.lastPathComponent }
 	var minCover = 1000
@@ -372,18 +374,27 @@ enum Scanner {
 
 	static func loadAlbum(folder: URL, files: [URL], minCover: Int) -> Album? {
 		var tracks: [Track] = []
-		var pic: Picture?
-		var art: [UInt32: [Cover]] = [:]
+		var pic: Picture?, boxPic: Picture?
+		var art: [UInt32: [Cover]] = [:], perDisc: [Int: [UInt32: [Cover]]] = [:]
+		func add(_ p: Picture, to a: inout [UInt32: [Cover]]) {
+			let g = Artwork.kind(p)
+			if a[g]?.contains(where: { $0.data == p.data }) == true { return }
+			if g == 3 || g == Artwork.box, a[g]?.isEmpty == false { return }   // one front, one box cover
+			if let sz = ImageSize.of(p.data) { a[g, default: []].append(Cover(width: sz.0, height: sz.1, data: p.data, embedded: true)) }
+		}
 		for f in files {
 			guard let flac = try? AudioFile(url: f) else { continue }
 			tracks.append(Track(url: f, tags: flac.tags, info: flac.info))
-			if pic == nil { pic = flac.pictures.first(where: { $0.type == 3 }) ?? flac.pictures.first }
+			if pic == nil { pic = flac.pictures.first(where: { $0.type == 3 && !Artwork.isBox($0) }) ?? flac.pictures.first }
+			if boxPic == nil { boxPic = flac.pictures.first(where: Artwork.isBox) }
+			let disc = Artwork.disc(flac.tags.first("DISCNUMBER"))
 			for p in flac.pictures where ArtType(rawValue: p.type) != nil {
-				if art[p.type]?.contains(where: { $0.data == p.data }) == true { continue }
-				if p.type == 3, art[3]?.isEmpty == false { continue }
-				if let sz = ImageSize.of(p.data) { art[p.type, default: []].append(Cover(width: sz.0, height: sz.1, data: p.data, embedded: true)) }
+				add(p, to: &art)
+				add(p, to: &perDisc[disc, default: [:]])
 			}
+			if perDisc[disc] == nil { perDisc[disc] = [:] }
 		}
+		if let b = boxPic { pic = b }   // the card shows the box cover when there is one (ADR 0099)
 		guard !tracks.isEmpty else { return nil }
 		tracks.sort {
 			let a = (Int($0.disc) ?? 1, Int($0.number) ?? 0, $0.url.path), b = (Int($1.disc) ?? 1, Int($1.number) ?? 0, $1.url.path)
@@ -395,6 +406,8 @@ enum Scanner {
 		var a = Album(url: folder, tracks: tracks, cover: cover)
 		a.minCover = minCover
 		a.artwork = art
+		a.discArtwork = perDisc
+		a.discs = perDisc.keys.sorted()
 		return a
 	}
 
