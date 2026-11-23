@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tagwright for macOS — The same rules, native on your Mac</title>
+<meta name="description" content="Native SwiftUI port of Tagwright: the same tagging pipeline and library rules, in process on your Mac. No Docker, no Python, no browser.">
+<link rel="canonical" href="https://www.twigtechnology.net/tagwright-macos/">
+<meta property="og:title" content="Tagwright for macOS">
+<meta property="og:description" content="The same tagging pipeline, native on your Mac.">
+<meta property="og:image" content="https://www.twigtechnology.net/assets/mock-macos.svg">
+<link rel="icon" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<nav class="top">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.svg" alt="">Twig Technology</a>
+    <div class="links">
+      <a class="wide" href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#source">Source</a>
+      <a href="/">All software</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <div class="wrap"><a class="back" href="/">← All software</a></div>
+
+  <header class="hero wrap">
+    <img class="icon" src="/assets/icon-tagwright-macos.svg" alt="Tagwright for macOS">
+    <h1>Tagwright for macOS</h1>
+    <p class="tagline">The same rules, native on your Mac.</p>
+    <p class="lede">A SwiftUI port of Tagwright: the tagging pipeline, the library layout and the rules you already know — running in process on your Mac. No Docker, no Python, no browser tab.</p>
+    <a class="cta" href="https://github.com/koehntopp/tagwright-macos/releases/latest">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"/></svg>
+      <span class="cta-text">Download for Mac<span class="ver">0.5.0</span></span>
+    </a>
+    <p class="fine">Free · macOS 15 or later · native SwiftUI</p>
+    <div class="hero-shots">
+      <img class="win library shot" src="/assets/mock-macos.svg" alt="Tagwright for macOS with the staging list and album cards">
+    </div>
+  </header>
+
+  <div class="wrap" id="features">
+    <section class="feature">
+      <div class="text">
+        <div class="eyebrow">Shared rules</div>
+        <h2>The web app's decisions, in an app.</h2>
+        <p>The UI and the rules follow the architecture decision records of the web version: FLAC tags with upper-case keys, status as steps, issues and missing, the bliss naming and layout, and the move-to-library behaviour with the cover recreated.</p>
+        <p>The tag editor, Discogs assignment, MusicBrainz search and lyrics editor all follow the same conventions, so an album looks the same whichever version of Tagwright you open.</p>
+      </div>
+      <img class="win shot" src="/assets/mock-macos.svg" alt="The staging list with cards and the filter bar" loading="lazy">
+    </section>
+
+    <section class="feature flip">
+      <div class="text">
+        <div class="eyebrow">All in process</div>
+        <h2>No helper tools to install.</h2>
+        <p>Dynamic range (TT DR), ReplayGain (EBU R128 — the web app's rsgain preset at −14 LUFS, true peak, clipping protection at −1 dBTP), lyrics from LRCLIB and filename rules all run inside the app. Chromaprint algorithm 2 fingerprints are computed natively too.</p>
+        <p>The library view keeps the template, watcher and index in one place, and CSV output is there when you need to take the data somewhere else.</p>
+      </div>
+      <div class="tile" style="padding: 28px">
+        <div class="eyebrow">Under the hood</div>
+        <h3 style="font-size:20px;margin:0 0 12px">One Swift binary</h3>
+        <p style="color:var(--muted);margin:0 0 12px">Own Vorbis-comment and FLAC picture reader and writer; MP3 (ID3v2.4) through a single audio-file seam; audio frames copied, never re-encoded.</p>
+        <p style="color:var(--muted);margin:0">Discogs token stored in the macOS Keychain. No secrets in files.</p>
+      </div>
+    </section>
+
+    <h2 class="section-title">And a few more things</h2>
+    <div class="grid">
+      <div class="tile"><div class="glyph">◈</div><h3>Discogs &amp; MusicBrainz</h3><p>Assign a release or search MusicBrainz from the same sheet. Tokens stay in the Keychain.</p></div>
+      <div class="tile"><div class="glyph">♫</div><h3>Lyrics editor</h3><p>Plain and synced lyrics, with LRC repair for the lines that arrived out of time.</p></div>
+      <div class="tile"><div class="glyph">▤</div><h3>Cards and list</h3><p>The board and the compact, sortable list view share one inspector.</p></div>
+      <div class="tile"><div class="glyph">◉</div><h3>Library watcher</h3><p>Template, watcher, index and CSV — the library stays observable.</p></div>
+      <div class="tile"><div class="glyph">✦</div><h3>Native fingerprints</h3><p>Chromaprint computed in app. Nothing is shelled out to a command-line tool.</p></div>
+      <div class="tile"><div class="glyph">◇</div><h3>Honest about gaps</h3><p>GAPS.md lists what is still missing compared with the web app. No surprises.</p></div>
+    </div>
+
+    <section class="pro" id="install">
+      <div>
+        <div class="eyebrow">Install</div>
+        <h2 class="section-title">Open it and go.</h2>
+        <ol>
+          <li>Download Tagwright from the latest release and move the app to Applications.</li>
+          <li>Choose your staging folder and library folder on first launch.</li>
+          <li>Pick an album, assign a release and run the pipeline.</li>
+        </ol>
+        <p class="price">Requires macOS 15 or later. To build from source: <kbd>./build-app.sh</kbd> produces <kbd>build/Tagwright.app</kbd> using just the Xcode command line tools.</p>
+      </div>
+      <div>
+        <div class="badges tall" style="justify-content:center">
+          <a href="https://github.com/koehntopp/tagwright-macos/releases/latest"><img src="https://img.shields.io/github/downloads/koehntopp/tagwright-macos/total?style=flat&label=downloads&logo=apple&logoColor=white&labelColor=1b1b52&color=6ff2ff" alt="Downloads"></a>
+          <a href="https://github.com/koehntopp/tagwright-macos/blob/main/GAPS.md"><img src="https://img.shields.io/badge/gaps-GAPS.md-orange?style=flat&labelColor=1b1b52" alt="Known gaps"></a>
+        </div>
+        <p class="caption">Releases and known gaps</p>
+      </div>
+    </section>
+
+    <div class="github-strip" id="source">
+      <div class="gh-copy">
+        <div class="eyebrow">Source</div>
+        <h3>Built in the open.</h3>
+        <p>The Swift sources, build scripts and the gap list are on GitHub. Issues and pull requests welcome.</p>
+      </div>
+      <span class="badges tall">
+        <a href="https://github.com/koehntopp/tagwright-macos"><img src="https://img.shields.io/github/stars/koehntopp/tagwright-macos?style=flat&label=stars&logo=github&logoColor=white&labelColor=1b1b52&color=ff9a7a" alt="GitHub stars"></a>
+        <a href="https://github.com/koehntopp/tagwright-macos/releases/latest"><img src="https://img.shields.io/github/v/release/koehntopp/tagwright-macos?style=flat&label=release&labelColor=1b1b52&color=6ff2ff" alt="Latest release"></a>
+        <a href="https://github.com/koehntopp/tagwright-macos/issues"><img src="https://img.shields.io/github/issues/koehntopp/tagwright-macos?style=flat&label=issues&labelColor=1b1b52&color=ffd07a" alt="Open issues"></a>
+      </span>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Frank Köhntopp</span>
+    <span class="spacer"></span>
+    <a href="/">All software</a>
+    <a href="/tagwright/">Tagwright web app</a>
+    <a href="https://github.com/koehntopp/tagwright-macos">GitHub</a>
+    <a href="mailto:info@twigtechnology.net">info@twigtechnology.net</a>
+  </div>
+</footer>
+</body>
+</html>
