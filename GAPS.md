@@ -1,4 +1,4 @@
-# Gaps against the web app (ADRs and CHANGELOG up to 0101, web 0.5.0+)
+# Gaps against the web app (ADRs and CHANGELOG up to 0102, web 0.5.0+)
 
 Done in this port: status model and steps (0054), bliss names (0010), layout and move (0011/0037), top bar, Staging/Library switch, cards and list (0031/0038/0085-0087), inspector with unified notes (0083), four artwork fields with drop/paste (0090/0092), Discogs release search and assignment with proposal, Import song titles, rate limiting, track counts, MusicBrainz match (0013/0053/0078-0080), MusicBrainz search and assignment with Discogs-ID/barcode/catalogue matches and year/Discogs-link/track-count checks (0023/0083), Tags & cover step ported from fixtags.py (0036), tag editor with five tabs, overrides, drag renumbering and read-only tag tabs (0014/0057), lyrics editor (0015/0021), leftover-folder dialog (0072), playback marker and stop (0015/0068), double-click runs one step (0051), stored album summaries for Staging and Library (0067, `Summaries.swift`: binary plist in Application Support, one entry per folder keyed by path/mtime/size of every FLAC and the folder image, 640 px cover thumbnail, fingerprint values replaced by a marker; artwork is read when an album is selected or moved; `Summaries.version` replaces SUMMARY_VERSION).
 
@@ -9,6 +9,7 @@ Tested by hand 2026-11-22 (driven through Accessibility on scratch copies: Chica
 Fixed from that run: lrclib time badges truncated; a new divider field did not take focus; the top-bar search kept focus under an open dialog; Return in a dialog field triggered the primary button instead of the field (removed, as in the web dialogs); Markdown italics in two hint texts; oversized icons in the cover menu.
 
 Done 2026-11-23 (web 0.5.0):
+- One release track on several discs of the album (0102): `AFile.copy` (the file's own disc), per-disc duplicate check (`Assignment.twice`), numbering per album disc when a track is reused, rows and dividers per album disc; the proposal's subtitle tiebreak for repeated titles and the reuse pass from 0.6 (`Assign.proposeScored`). The port has no medley-part pass, as before.
 - Disc and track from Discogs positions with media labels (0101): `Positions.swift`, the port of `pipeline/positions.py` (`SACD-1`, `CD-1`, `BD1-2`, disc headings incl. SACD/BD/Blu-ray); parity test `testPositions`.
 - Paste into every cover field (0096): a click focuses the field, ⌘V pastes; front replaced, back/leaflet/media appended. Paste image stays in the front menu only.
 - Album Format is a plain field showing ALBUM_FORMAT (0097); saving removes a legacy ALBUM_FORMAT_OVERRIDE; empty means CD.

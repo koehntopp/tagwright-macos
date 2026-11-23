@@ -720,7 +720,7 @@ struct DividerGap: View {
 
 /// One file of the assignment, as the web dialog keeps it: `rel` the release track, `d` / `t` / `nt` the owner's
 /// overrides of disc, track and title, `ad` / `at` the default numbering.
-struct AFile { var i: Int; var key: String; var rel: Int?; var conf: Double; var d: Int?; var t: Int?; var nt: String?; var ad = 0, at = 0 }
+struct AFile { var i: Int; var key: String; var rel: Int?; var conf: Double; var d: Int?; var t: Int?; var nt: String?; var ad = 0, at = 0; var copy = 1 }
 struct Ovr { var text: String?; var keep: Bool?; var split = false; var merge = false }
 struct ARun { var start: Int, key: String, disc: Int, relSub: String, inside: Bool, idx: [Int], text = "", keep = false, was = "", differs = false }
 
@@ -733,22 +733,37 @@ struct Assignment {
 	init(album: Album, tracks: [DTrack]) {
 		self.tracks = tracks
 		let p = Assign.proposeScored(files: album.tracks, release: tracks)
-		files = album.tracks.enumerated().map { i, t in AFile(i: i, key: t.id, rel: p[i].0, conf: p[i].1) }
-		// the dividers name the release's disc, so the files are listed in that order too (ADR 0089)
-		files.sort { a, b in (a.rel == nil ? 1 : 0, a.rel ?? 0, a.i) < (b.rel == nil ? 1 : 0, b.rel ?? 0, b.i) }
+		files = album.tracks.enumerated().map { i, t in AFile(i: i, key: t.id, rel: p[i].0, conf: p[i].1, copy: Assign.copy(t)) }
+		// the dividers name the release's disc, so the files are listed in that order too (ADR 0089); a release track
+		// used on several discs of the album lists each disc of the album in turn (ADR 0102)
+		let reused = Set(files.compactMap(\.rel)).count != files.filter { $0.rel != nil }.count
+		func key(_ f: AFile) -> (Int, Int, Int, Int, Int, Int) {
+			guard let r = f.rel else { return (1, 0, 0, 0, 0, f.i) }
+			return (0, tracks[r].disc, reused ? f.copy : 0, tracks[r].number, r, f.i)
+		}
+		files.sort { key($0) < key($1) }
 		number()
 	}
 
-	/// Default numbering (the server's rule): 1..n per disc in release order.
+	/// Default numbering (the server's rule): 1..n per disc in release order; with a release track on several discs
+	/// of the album, every disc of the album on its own (ADR 0102).
 	mutating func number() {
 		let sel = files.indices.filter { files[$0].rel != nil }.sorted { files[$0].rel! < files[$1].rel! }
-		let discs = Array(Set(sel.map { tracks[files[$0].rel!].disc })).sorted()
-		var seen: [Int: Int] = [:]
-		for k in sel { let d = tracks[files[k].rel!].disc; seen[d, default: 0] += 1; files[k].ad = (discs.firstIndex(of: d) ?? 0) + 1; files[k].at = seen[d]! }
+		let reused = Set(sel.map { files[$0].rel! }).count != sel.count
+		func group(_ k: Int) -> [Int] { [reused ? files[k].copy : 0, tracks[files[k].rel!].disc] }
+		let discs = Array(Set(sel.map(group))).sorted { $0.lexicographicallyPrecedes($1) }
+		var seen: [[Int]: Int] = [:]
+		for k in sel { let g = group(k); seen[g, default: 0] += 1; files[k].ad = (discs.firstIndex(of: g) ?? 0) + 1; files[k].at = seen[g]! }
 	}
 	var used: [Int: Int] { var u: [Int: Int] = [:]; for f in files { if let r = f.rel { u[r, default: 0] += 1 } }; return u }
-	var dup: Bool { used.values.contains { $0 > 1 } }
-	var n: Int { used.count }
+	/// The files whose release track another file of the same disc of the album has too (ADR 0102).
+	var twice: Set<String> {
+		var c: [[Int]: Int] = [:]
+		for f in files { if let r = f.rel { c[[r, f.copy], default: 0] += 1 } }
+		return Set(files.filter { f in f.rel.map { c[[$0, f.copy]]! > 1 } ?? false }.map(\.key))
+	}
+	var dup: Bool { !twice.isEmpty }
+	var n: Int { files.filter { $0.rel != nil }.count }
 
 	/// Runs of the subtitle dividers: neighbouring assigned files whose release tracks share a disc and a subtitle.
 	func runs(_ album: Album) -> (runs: [ARun], subOf: [String: String?], multi: Bool) {
@@ -756,10 +771,10 @@ struct Assignment {
 		var lastSub = ""
 		for (i, f) in files.enumerated() {
 			guard let r = f.rel else { continue }
-			let t = tracks[r], relSub = t.subtitle, o = ovr[f.key]
-			let discStart = out.last == nil || t.disc != out.last!.disc
+			let t = tracks[r], relSub = t.subtitle, o = ovr[f.key], disc = f.d ?? (f.ad > 0 ? f.ad : t.disc)
+			let discStart = out.last == nil || disc != out.last!.disc
 			if out.isEmpty || discStart || ((relSub != lastSub || o?.split == true) && o?.merge != true) {
-				out.append(ARun(start: i, key: f.key, disc: t.disc, relSub: relSub, inside: !discStart, idx: []))
+				out.append(ARun(start: i, key: f.key, disc: disc, relSub: relSub, inside: !discStart, idx: []))
 			}
 			out[out.count - 1].idx.append(i); lastSub = relSub
 		}
@@ -844,7 +859,7 @@ struct AssignTable: View {
 				Text("Skip (leave as is)").tag(-1)
 				ForEach(a.tracks) { r in Text("\(r.number)  \(r.title)\(r.seconds > 0 ? " (\(Inspector.mmss(Double(r.seconds))))" : "")").tag(r.id) }
 			}.labelsHidden().frame(width: 288)
-			.overlay { if let r = f.rel, (used[r] ?? 0) > 1 { RoundedRectangle(cornerRadius: 6).stroke(Color.rose(500)) } }
+			.overlay { if a.twice.contains(f.key) { RoundedRectangle(cornerRadius: 6).stroke(Color.rose(500)) } }
 			Group {
 				if f.rel == nil { Pill(text: "skip", fg: .slate(900), bg: .slate(100)) }
 				else if f.conf >= 0.6 { Pill(text: "match", fg: .emerald(800), bg: .emerald(100)) }
@@ -971,7 +986,7 @@ struct DiscogsSheet: View {
 	var applying: Bool { app.job?.hasPrefix("Applying") == true }
 
 	var body: some View {
-		Shell(title: "Assign tracks to a release", width: 1024, err: a.dup ? "A release track is assigned to more than one file." : err,
+		Shell(title: "Assign tracks to a release", width: 1024, err: a.dup ? "A release track is assigned to more than one file of the same disc." : err,
 			saveLabel: applying ? "Applying…" : raw != nil ? "Apply (\(a.n) of \(album.tracks.count))" : "Apply", saveDisabled: raw == nil || a.dup || a.n == 0 || busy || applying, danger: applying, save: apply, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 0) {
 				HStack(spacing: 8) {
@@ -1092,7 +1107,7 @@ struct MusicBrainzSheet: View {
 	var applying: Bool { app.job?.hasPrefix("Applying") == true }
 
 	var body: some View {
-		Shell(title: "Choose a MusicBrainz release", width: 1024, err: a.dup ? "A release track is assigned to more than one file." : err,
+		Shell(title: "Choose a MusicBrainz release", width: 1024, err: a.dup ? "A release track is assigned to more than one file of the same disc." : err,
 			saveLabel: applying ? "Applying…" : detail != nil ? "Apply (\(a.n) of \(album.tracks.count))" : "Apply", saveDisabled: detail == nil || a.dup || busy || applying, danger: applying, save: apply, onClose: { app.sheet = nil }) {
 			VStack(alignment: .leading, spacing: 0) {
 				HStack(spacing: 8) {

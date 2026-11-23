@@ -94,19 +94,47 @@ enum Assign {
 	/// For every file the index of its release track, or nil.
 	static func propose(files: [Track], release: [DTrack]) -> [Int?] { proposeScored(files: files, release: release).map(\.0) }
 
+	/// app.norm_title: lowercase ASCII words, accents folded, other scripts dropped.
+	static func normWords(_ s: String) -> [String] {
+		let ascii = String(String.UnicodeScalarView(s.lowercased().decomposedStringWithCanonicalMapping.unicodeScalars.filter(\.isASCII)))
+		return ascii.split { !($0.isLetter || $0.isNumber) }.map(String.init)
+	}
+
+	/// app.subtitle_overlap: the share of the words of a file's subtitle that the release track's subtitle has.
+	static func subtitleOverlap(_ mine: String, _ release: String) -> Double {
+		let w = Set(normWords(mine))
+		return w.isEmpty ? 0 : Double(w.intersection(normWords(release)).count) / Double(w.count)
+	}
+
+	/// A file's own disc: the leading number of DISCNUMBER, else 1 (ADR 0102).
+	static func copy(_ t: Track) -> Int { Artwork.disc(t.disc) }
+
 	/// The proposal with each file's score; the dialogs show "match" from 0.6, "check" below (web conf).
+	/// ADR 0102: for a title the release lists more than once, the file's subtitle picks the heading; files still
+	/// unassigned may then take a track a file of another disc of the album already has, from 0.6.
 	static func proposeScored(files: [Track], release: [DTrack]) -> [(Int?, Double)] {
 		var scores: [(Double, Int, Int)] = []
+		var titles: [String: Int] = [:]
+		for t in release { titles[normWords(t.title).joined(separator: " "), default: 0] += 1 }
 		for (i, f) in files.enumerated() {
+			let sub = f.tags.first("SET SUBTITLE", "DISCSUBTITLE")
 			for (j, t) in release.enumerated() {
 				var s = similarity(f.title, t.title) * 0.6
 				if t.seconds > 0, abs(Int(f.info.duration.rounded()) - t.seconds) <= 8 { s += 0.25 * (1 - Double(abs(Int(f.info.duration.rounded()) - t.seconds)) / 8) }
 				if Int(f.disc) == t.disc && Int(f.number) == t.number { s += 0.15 }
+				if titles[normWords(t.title).joined(separator: " "), default: 0] > 1 { s += subtitleOverlap(sub, t.subtitle) * 0.3 }
 				scores.append((s, i, j))
 			}
 		}
-		var out = [(Int?, Double)](repeating: (nil, 0), count: files.count), usedT = Set<Int>()
-		for (s, i, j) in scores.sorted(by: { $0.0 > $1.0 }) where s >= 0.35 && out[i].0 == nil && !usedT.contains(j) { out[i] = (j, (s * 100).rounded() / 100); usedT.insert(j) }
+		var out = [(Int?, Double)](repeating: (nil, 0), count: files.count), usedT = Set<Int>(), taken: [Int: Set<Int>] = [:]
+		let sorted = scores.sorted { $0.0 > $1.0 }
+		for (reuse, least) in [(false, 0.35), (true, 0.6)] {
+			for (s, i, j) in sorted where s >= least && out[i].0 == nil {
+				let c = copy(files[i])
+				if reuse ? taken[c, default: []].contains(j) : usedT.contains(j) { continue }
+				out[i] = (j, (s * 100).rounded() / 100); usedT.insert(j); taken[c, default: []].insert(j)
+			}
+		}
 		return out
 	}
 
